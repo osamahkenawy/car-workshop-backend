@@ -1,0 +1,172 @@
+/**
+ * Car Workshop Platform — API server entrypoint.
+ *
+ * Express app + Socket.IO, all routers mounted under /api/...
+ */
+import express from 'express';
+import http from 'http';
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import { config } from './config.js';
+import { initSocket } from './lib/socket.js';
+
+// ── Cron / background jobs ────────────────────────────────────────────────
+import { startAcceptanceTimeout } from './lib/acceptance-timeout.js';
+import { startJobDelayChecker } from './lib/job-delay-checker.js';
+import { startDocExpiryCron } from './lib/doc-expiry-cron.js';
+import { startDataRetention } from './lib/data-retention.js';
+import { startTrialEnforcer } from './lib/trial-enforcer.js';
+import { startScheduledReports } from './lib/scheduled-reports.js';
+
+// ── Routers ────────────────────────────────────────────────────────────────
+import authRouter from './routes/auth.js';
+import workshopsRouter from './routes/workshops.js';
+import mechanicsRouter from './routes/mechanics.js';
+import customersRouter from './routes/customers.js';
+import serviceBaysRouter from './routes/service-bays.js';
+import vehiclesRouter from './routes/vehicles.js';
+import workOrdersRouter from './routes/work-orders.js';
+import partsRouter from './routes/parts.js';
+import jobAssignmentRouter from './routes/job-assignment.js';
+import servicePricingRouter from './routes/service-pricing.js';
+import serviceStatusRouter from './routes/service-status.js';
+import cashPaymentRouter from './routes/cash-payment.js';
+import warrantyClaimsRouter from './routes/warranty-claims.js';
+import mechanicEarningsRouter from './routes/mechanic-earnings.js';
+import mechanicDocumentsRouter from './routes/mechanic-documents.js';
+import mechanicAppRouter from './routes/mechanic-app.js';
+import customerAuthRouter from './routes/customer-auth.js';
+import customerPortalRouter from './routes/customer-portal.js';
+import walletRouter from './routes/wallet.js';
+import invoicesRouter from './routes/invoices.js';
+import financialAdvancedRouter from './routes/financial-advanced.js';
+import stripeRouter from './routes/stripe.js';
+import webhooksRouter from './routes/webhooks.js';
+import reportsRouter from './routes/reports.js';
+import statsRouter from './routes/stats.js';
+import settingsRouter from './routes/settings.js';
+import notificationsRouter from './routes/notifications.js';
+import userNotificationsRouter from './routes/user-notifications.js';
+import integrationsRouter from './routes/integrations.js';
+import uploadsRouter from './routes/uploads.js';
+import apiV1Router from './routes/api-v1.js';
+import publicApiRouter from './routes/public-api.js';
+import { publicCareersRouter, adminCareersRouter } from './routes/careers.js';
+import { legalPublicRouter, legalAdminRouter } from './routes/legal-pages.js';
+import superAdminRouter from './routes/super-admin.js';
+import superAdminEnhancedRouter from './routes/super-admin-enhanced.js';
+
+const app = express();
+const httpServer = http.createServer(app);
+
+app.set('trust proxy', 1);
+app.use(cors({ origin: config.frontendUrl === '*' ? true : [config.frontendUrl, 'http://localhost:3000'], credentials: true }));
+
+// ── Stripe webhook MUST be mounted before the global JSON body parser,
+//    because it needs the raw request body (express.raw()) to verify the
+//    Stripe signature. It's registered here first so its raw-body route
+//    matches before express.json() would otherwise consume the stream. ──
+app.use('/api/stripe', stripeRouter);
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+
+// Static file serving for uploaded content (proofs, avatars, documents, etc.)
+app.use('/uploads', express.static(new URL('../uploads', import.meta.url).pathname));
+
+app.get('/health', (req, res) => {
+  res.json({ success: true, service: 'car-workshop-backend', status: 'ok', time: new Date().toISOString() });
+});
+
+// ── Core platform ───────────────────────────────────────────────────────
+app.use('/api/auth', authRouter);
+app.use('/api/workshops', workshopsRouter);
+app.use('/api/mechanics', mechanicsRouter);
+app.use('/api/customers', customersRouter);
+app.use('/api/service-bays', serviceBaysRouter);
+app.use('/api/vehicles', vehiclesRouter);
+
+// ── Work order lifecycle ────────────────────────────────────────────────
+app.use('/api/work-orders', workOrdersRouter);
+app.use('/api/parts', partsRouter);
+app.use('/api/job-assignment', jobAssignmentRouter);
+app.use('/api/service-pricing', servicePricingRouter);
+app.use('/api/service-status', serviceStatusRouter);
+app.use('/api/cash-payment', cashPaymentRouter);
+app.use('/api/warranty-claims', warrantyClaimsRouter);
+
+// ── Mechanic-facing ──────────────────────────────────────────────────────
+app.use('/api/mechanic-earnings', mechanicEarningsRouter);
+app.use('/api/mechanic-documents', mechanicDocumentsRouter);
+app.use('/api/mechanic-app', mechanicAppRouter);
+
+// ── Customer-facing ──────────────────────────────────────────────────────
+app.use('/api/customer-auth', customerAuthRouter);
+app.use('/api/customer-portal', customerPortalRouter);
+
+// ── Billing / finance ────────────────────────────────────────────────────
+app.use('/api/wallet', walletRouter);
+app.use('/api/invoices', invoicesRouter);
+app.use('/api/financial-advanced', financialAdvancedRouter);
+app.use('/api/webhooks', webhooksRouter);
+
+// ── Reporting / platform admin ──────────────────────────────────────────
+app.use('/api/reports', reportsRouter);
+app.use('/api/stats', statsRouter);
+app.use('/api/settings', settingsRouter);
+app.use('/api/notifications', notificationsRouter);
+app.use('/api/user-notifications', userNotificationsRouter);
+app.use('/api/integrations', integrationsRouter);
+app.use('/api/uploads', uploadsRouter);
+
+// ── External-facing API ─────────────────────────────────────────────────
+app.use('/api/v1', apiV1Router);
+app.use('/api/public', publicApiRouter);
+
+// ── Marketing / content pages (each file exposes a public + admin router) ─
+app.use('/api/careers', publicCareersRouter);
+app.use('/api/admin/careers', adminCareersRouter);
+app.use('/api/legal-pages', legalPublicRouter);
+app.use('/api/admin/legal-pages', legalAdminRouter);
+
+// ── Super admin (platform owner) ────────────────────────────────────────
+app.use('/api/super-admin', superAdminRouter);
+app.use('/api/super-admin', superAdminEnhancedRouter);
+
+// ── 404 handler ──────────────────────────────────────────────────────────
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: `Route not found: ${req.method} ${req.originalUrl}` });
+});
+
+// ── Global error handler ────────────────────────────────────────────────
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  if (res.headersSent) return next(err);
+  res.status(err.status || 500).json({
+    success: false,
+    message: config.env === 'production' ? 'Internal server error' : err.message,
+  });
+});
+
+// ── Socket.IO ────────────────────────────────────────────────────────────
+initSocket(httpServer);
+
+// ── Background jobs (cron) ──────────────────────────────────────────────
+// These are resilient to a missing/unreachable DB — each wraps its own
+// interval in try/catch so a DB hiccup doesn't crash the process.
+if (process.env.DISABLE_CRON_JOBS !== 'true') {
+  try { startAcceptanceTimeout(); } catch (e) { console.error('startAcceptanceTimeout failed:', e.message); }
+  try { startJobDelayChecker(); } catch (e) { console.error('startJobDelayChecker failed:', e.message); }
+  try { startDocExpiryCron(); } catch (e) { console.error('startDocExpiryCron failed:', e.message); }
+  try { startDataRetention(); } catch (e) { console.error('startDataRetention failed:', e.message); }
+  try { startTrialEnforcer(); } catch (e) { console.error('startTrialEnforcer failed:', e.message); }
+  try { startScheduledReports(); } catch (e) { console.error('startScheduledReports failed:', e.message); }
+}
+
+httpServer.listen(config.port, () => {
+  console.log(`Car Workshop Platform API listening on port ${config.port} (${config.env})`);
+});
+
+export default app;
