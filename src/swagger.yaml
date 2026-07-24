@@ -1,0 +1,7207 @@
+openapi: 3.0.3
+info:
+  title: Car Workshop Platform API
+  description: |
+    Multi-branch car workshop management platform.  
+    **Authentication:** Most endpoints require a JWT Bearer token obtained from `/api/auth/login`.  
+    Workshop-scoped routes read the workshop from the JWT payload.  
+    External integrations use the `X-API-Key` header (see `/api/v1/*`).
+  version: 1.0.0
+  contact:
+    name: Platform Support
+
+servers:
+  - url: /api
+    description: Backend API base path
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    customerBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Customer-portal JWT
+
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        pages:
+          type: integer
+
+    WorkOrder:
+      type: object
+      properties:
+        id:
+          type: integer
+        service_status_token:
+          type: string
+        barcode:
+          type: string
+        status:
+          type: string
+          enum: [pending, accepted, in_progress, completed, cancelled, failed]
+        order_type:
+          type: string
+        category:
+          type: string
+        customer_name:
+          type: string
+        customer_phone:
+          type: string
+        customer_address:
+          type: string
+        payment_method:
+          type: string
+        total_amount:
+          type: number
+        scheduled_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Mechanic:
+      type: object
+      properties:
+        id:
+          type: integer
+        full_name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive, suspended]
+        is_available:
+          type: boolean
+        rating:
+          type: number
+        created_at:
+          type: string
+          format: date-time
+
+    Customer:
+      type: object
+      properties:
+        id:
+          type: integer
+        full_name:
+          type: string
+        company_name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    Vehicle:
+      type: object
+      properties:
+        id:
+          type: integer
+        make:
+          type: string
+        model:
+          type: string
+        year:
+          type: integer
+        plate_number:
+          type: string
+        customer_id:
+          type: integer
+
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: integer
+        work_order_id:
+          type: integer
+        invoice_number:
+          type: string
+        status:
+          type: string
+          enum: [draft, sent, paid, overdue, cancelled]
+        total_amount:
+          type: number
+        due_date:
+          type: string
+          format: date
+        created_at:
+          type: string
+          format: date-time
+
+    Part:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        sku:
+          type: string
+        price:
+          type: number
+        quantity_in_stock:
+          type: integer
+        status:
+          type: string
+
+    ServiceBay:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        bay_type:
+          type: string
+        is_active:
+          type: boolean
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+    description: Authentication and session management
+  - name: Workshops
+    description: Workshop registration and management
+  - name: Mechanics
+    description: Mechanic CRUD and location tracking
+  - name: Customers
+    description: Customer management
+  - name: Service Bays
+    description: Service bay management
+  - name: Vehicles
+    description: Vehicle records
+  - name: Work Orders
+    description: Work order lifecycle management
+  - name: Parts
+    description: Parts and inventory
+  - name: Job Assignment
+    description: Assign/unassign mechanics to work orders
+  - name: Service Pricing
+    description: Pricing rules and surge pricing
+  - name: Service Status
+    description: Real-time order status tracking
+  - name: Cash Payment
+    description: Cash collection and settlement
+  - name: Warranty Claims
+    description: Warranty claim management
+  - name: Mechanic Earnings
+    description: Earnings tracking and payout
+  - name: Mechanic Documents
+    description: Mechanic document uploads and verification
+  - name: Mechanic App
+    description: Mobile app endpoints for mechanics
+  - name: Customer Auth
+    description: Customer portal authentication
+  - name: Customer Portal
+    description: Customer self-service portal
+  - name: Wallet
+    description: Wallet and transactions
+  - name: Invoices
+    description: Invoice generation and management
+  - name: Financial Advanced
+    description: Currencies, escrow, subscriptions, payment links
+  - name: Stripe
+    description: Stripe billing integration
+  - name: Webhooks
+    description: Outbound webhook management
+  - name: Reports
+    description: Financial and operational reports
+  - name: Stats
+    description: Dashboard statistics
+  - name: Settings
+    description: Workshop settings, users, categories, roles
+  - name: Notifications
+    description: SMS, email, and push notifications
+  - name: User Notifications
+    description: In-app notifications for portal users
+  - name: Integrations
+    description: Third-party integration management
+  - name: Uploads
+    description: File uploads (logo, photos, signatures)
+  - name: Public API
+    description: Public endpoints (pricing, sign-up, contact)
+  - name: Careers
+    description: Job listings (public and admin)
+  - name: Legal Pages
+    description: Terms, privacy policy pages (public and admin)
+  - name: Super Admin
+    description: Platform owner administration
+  - name: External API v1
+    description: API-key authenticated external integration endpoints
+
+paths:
+
+  # ─────────────────────────────────────────────
+  # AUTH
+  # ─────────────────────────────────────────────
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login (staff / owner)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful, returns JWT token
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      token:
+                        type: string
+                      user:
+                        type: object
+        '401':
+          description: Invalid credentials
+
+  /auth/mechanic-login:
+    post:
+      tags: [Auth]
+      summary: Mechanic login (legacy)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, password]
+              properties:
+                phone:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+
+  /auth/session:
+    get:
+      tags: [Auth]
+      summary: Get current session
+      responses:
+        '200':
+          description: Current user session data
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout (clears cookie)
+      responses:
+        '200':
+          description: Logged out
+
+  /auth/branding:
+    get:
+      tags: [Auth]
+      summary: Get workshop branding for login page
+      security: []
+      responses:
+        '200':
+          description: Branding config (logo, colors)
+
+  /auth/register-workshop:
+    post:
+      tags: [Auth]
+      summary: Register new workshop account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workshop_name, email, password]
+              properties:
+                workshop_name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                phone:
+                  type: string
+      responses:
+        '201':
+          description: Workshop registered
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request password reset email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Reset email sent
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password using token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Password reset successful
+
+  /auth/change-password:
+    put:
+      tags: [Auth]
+      summary: Change password (authenticated)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        '200':
+          description: Password changed
+
+  # ─────────────────────────────────────────────
+  # WORKSHOPS
+  # ─────────────────────────────────────────────
+  /workshops/register:
+    post:
+      tags: [Workshops]
+      summary: Register a new workshop
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+                phone:
+                  type: string
+                address:
+                  type: string
+      responses:
+        '201':
+          description: Workshop created
+
+  /workshops/check-availability:
+    get:
+      tags: [Workshops]
+      summary: Check subdomain/email availability
+      security: []
+      parameters:
+        - in: query
+          name: email
+          schema:
+            type: string
+        - in: query
+          name: subdomain
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Availability result
+
+  /workshops/current:
+    get:
+      tags: [Workshops]
+      summary: Get current workshop details
+      responses:
+        '200':
+          description: Workshop object
+    patch:
+      tags: [Workshops]
+      summary: Update current workshop (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Workshop updated
+
+  /workshops/subscription:
+    get:
+      tags: [Workshops]
+      summary: Get subscription info for current workshop
+      responses:
+        '200':
+          description: Subscription details
+
+  /workshops/usage:
+    get:
+      tags: [Workshops]
+      summary: Get usage metrics for current workshop
+      responses:
+        '200':
+          description: Usage metrics
+
+  /workshops:
+    get:
+      tags: [Workshops]
+      summary: List all workshops (platform owner only)
+      responses:
+        '200':
+          description: List of workshops
+
+  /workshops/{id}:
+    get:
+      tags: [Workshops]
+      summary: Get workshop by ID (platform owner only)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Workshop object
+    patch:
+      tags: [Workshops]
+      summary: Update workshop by ID (platform owner only)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Workshops]
+      summary: Delete workshop (platform owner only)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /workshops/{id}/suspend:
+    post:
+      tags: [Workshops]
+      summary: Suspend workshop (platform owner only)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Suspended
+
+  /workshops/{id}/activate:
+    post:
+      tags: [Workshops]
+      summary: Activate workshop (platform owner only)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Activated
+
+  /workshops/licenses/generate:
+    post:
+      tags: [Workshops]
+      summary: Generate license key (platform owner only)
+      responses:
+        '201':
+          description: License key generated
+
+  /workshops/licenses/validate:
+    post:
+      tags: [Workshops]
+      summary: Validate a license key
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [license_key]
+              properties:
+                license_key:
+                  type: string
+      responses:
+        '200':
+          description: Validation result
+
+  /workshops/licenses/activate:
+    post:
+      tags: [Workshops]
+      summary: Activate a license key
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [license_key]
+              properties:
+                license_key:
+                  type: string
+      responses:
+        '200':
+          description: Activated
+
+  # ─────────────────────────────────────────────
+  # MECHANICS
+  # ─────────────────────────────────────────────
+  /mechanics:
+    get:
+      tags: [Mechanics]
+      summary: List all mechanics
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of mechanics
+    post:
+      tags: [Mechanics]
+      summary: Create mechanic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Mechanic'
+      responses:
+        '201':
+          description: Created
+
+  /mechanics/live-locations:
+    get:
+      tags: [Mechanics]
+      summary: Get live locations of all mechanics
+      responses:
+        '200':
+          description: Array of mechanic location objects
+
+  /mechanics/locations/live:
+    get:
+      tags: [Mechanics]
+      summary: Get live locations (alternate path)
+      responses:
+        '200':
+          description: Array of mechanic location objects
+
+  /mechanics/me:
+    get:
+      tags: [Mechanics]
+      summary: Get current mechanic profile
+      responses:
+        '200':
+          description: Mechanic profile
+
+  /mechanics/bulk-status:
+    patch:
+      tags: [Mechanics]
+      summary: Bulk update mechanic status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: integer
+                status:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+
+  /mechanics/sync-accounts:
+    post:
+      tags: [Mechanics]
+      summary: Sync mechanic accounts
+      responses:
+        '200':
+          description: Synced
+
+  /mechanics/{id}:
+    get:
+      tags: [Mechanics]
+      summary: Get mechanic by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Mechanic object
+    put:
+      tags: [Mechanics]
+      summary: Update mechanic
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Mechanic'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Mechanics]
+      summary: Delete mechanic
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /mechanics/{id}/status:
+    patch:
+      tags: [Mechanics]
+      summary: Update mechanic status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+
+  /mechanics/{id}/location:
+    get:
+      tags: [Mechanics]
+      summary: Get mechanic current location
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Location object
+    patch:
+      tags: [Mechanics]
+      summary: Update mechanic location (PATCH)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+      responses:
+        '200':
+          description: Updated
+    post:
+      tags: [Mechanics]
+      summary: Update mechanic location (POST)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+      responses:
+        '200':
+          description: Updated
+
+  /mechanics/{id}/location-history:
+    get:
+      tags: [Mechanics]
+      summary: Get mechanic location history
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Array of location history records
+
+  /mechanics/{id}/toggle-active:
+    patch:
+      tags: [Mechanics]
+      summary: Toggle mechanic active status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Toggled
+
+  /mechanics/{id}/ratings:
+    get:
+      tags: [Mechanics]
+      summary: Get mechanic ratings
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Ratings list
+
+  # ─────────────────────────────────────────────
+  # CUSTOMERS
+  # ─────────────────────────────────────────────
+  /customers:
+    get:
+      tags: [Customers]
+      summary: List customers
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: search
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated customer list
+    post:
+      tags: [Customers]
+      summary: Create customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Customer'
+      responses:
+        '201':
+          description: Created
+
+  /customers/stats:
+    get:
+      tags: [Customers]
+      summary: Customer statistics
+      responses:
+        '200':
+          description: Stats object
+
+  /customers/{id}:
+    get:
+      tags: [Customers]
+      summary: Get customer by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Customer object
+    put:
+      tags: [Customers]
+      summary: Update customer
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Customer'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Customers]
+      summary: Delete customer
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /customers/{id}/toggle:
+    patch:
+      tags: [Customers]
+      summary: Toggle customer active status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Toggled
+
+  # ─────────────────────────────────────────────
+  # SERVICE BAYS
+  # ─────────────────────────────────────────────
+  /service-bays:
+    get:
+      tags: [Service Bays]
+      summary: List service bays
+      responses:
+        '200':
+          description: List of service bays
+    post:
+      tags: [Service Bays]
+      summary: Create service bay
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceBay'
+      responses:
+        '201':
+          description: Created
+
+  /service-bays/{id}:
+    get:
+      tags: [Service Bays]
+      summary: Get service bay by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Service bay object
+    put:
+      tags: [Service Bays]
+      summary: Update service bay
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceBay'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Service Bays]
+      summary: Delete service bay
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  # ─────────────────────────────────────────────
+  # VEHICLES
+  # ─────────────────────────────────────────────
+  /vehicles:
+    get:
+      tags: [Vehicles]
+      summary: List vehicles
+      parameters:
+        - in: query
+          name: customer_id
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of vehicles
+    post:
+      tags: [Vehicles]
+      summary: Create vehicle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Vehicle'
+      responses:
+        '201':
+          description: Created
+
+  /vehicles/{id}:
+    get:
+      tags: [Vehicles]
+      summary: Get vehicle by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Vehicle object
+    put:
+      tags: [Vehicles]
+      summary: Update vehicle
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Vehicle'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Vehicles]
+      summary: Delete vehicle
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /vehicles/{id}/work-orders:
+    get:
+      tags: [Vehicles]
+      summary: List work orders for a vehicle
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of work orders
+
+  # ─────────────────────────────────────────────
+  # WORK ORDERS
+  # ─────────────────────────────────────────────
+  /work-orders:
+    get:
+      tags: [Work Orders]
+      summary: List work orders
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Paginated work order list
+    post:
+      tags: [Work Orders]
+      summary: Create work order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkOrder'
+      responses:
+        '201':
+          description: Created
+
+  /work-orders/stats:
+    get:
+      tags: [Work Orders]
+      summary: Work order statistics
+      responses:
+        '200':
+          description: Stats
+
+  /work-orders/pre-generate:
+    post:
+      tags: [Work Orders]
+      summary: Pre-generate barcodes / service tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                count:
+                  type: integer
+      responses:
+        '201':
+          description: Pre-generated entries
+
+  /work-orders/pre-generated:
+    get:
+      tags: [Work Orders]
+      summary: List pre-generated work orders
+      responses:
+        '200':
+          description: List
+
+  /work-orders/pre-generated/stats:
+    get:
+      tags: [Work Orders]
+      summary: Stats for pre-generated work orders
+      responses:
+        '200':
+          description: Stats
+
+  /work-orders/pre-generated/{id}:
+    delete:
+      tags: [Work Orders]
+      summary: Delete pre-generated work order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /work-orders/pre-generated/{id}/link:
+    post:
+      tags: [Work Orders]
+      summary: Link a pre-generated entry to an order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Linked
+
+  /work-orders/pre-generated/{id}/unlink:
+    post:
+      tags: [Work Orders]
+      summary: Unlink a pre-generated entry
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Unlinked
+
+  /work-orders/linkable:
+    get:
+      tags: [Work Orders]
+      summary: Get linkable work orders
+      responses:
+        '200':
+          description: List
+
+  /work-orders/validate-pregenerated:
+    post:
+      tags: [Work Orders]
+      summary: Validate a pre-generated token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Validation result
+
+  /work-orders/{id}:
+    get:
+      tags: [Work Orders]
+      summary: Get work order by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Work order object
+    put:
+      tags: [Work Orders]
+      summary: Update work order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkOrder'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Work Orders]
+      summary: Delete work order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /work-orders/{id}/status:
+    patch:
+      tags: [Work Orders]
+      summary: Update work order status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                note:
+                  type: string
+      responses:
+        '200':
+          description: Status updated
+
+  /work-orders/{id}/assign-mechanic:
+    patch:
+      tags: [Work Orders]
+      summary: Assign mechanic to work order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mechanic_id:
+                  type: integer
+      responses:
+        '200':
+          description: Assigned
+
+  /work-orders/{id}/photos:
+    get:
+      tags: [Work Orders]
+      summary: List photos for a work order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Photos list
+
+  /work-orders/{id}/photos/{photoId}:
+    delete:
+      tags: [Work Orders]
+      summary: Delete a work order photo
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - in: path
+          name: photoId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /work-orders/{id}/items:
+    get:
+      tags: [Work Orders]
+      summary: List items (parts/labor) for work order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Items list
+    post:
+      tags: [Work Orders]
+      summary: Add item to work order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                part_id:
+                  type: integer
+                description:
+                  type: string
+                quantity:
+                  type: integer
+                unit_price:
+                  type: number
+      responses:
+        '201':
+          description: Item added
+
+  /work-orders/{id}/items/{itemId}:
+    put:
+      tags: [Work Orders]
+      summary: Update work order item
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Work Orders]
+      summary: Delete work order item
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /work-orders/{id}/rate-mechanic:
+    post:
+      tags: [Work Orders]
+      summary: Rate the assigned mechanic
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rating]
+              properties:
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                review:
+                  type: string
+      responses:
+        '200':
+          description: Rating saved
+
+  # ─────────────────────────────────────────────
+  # PARTS
+  # ─────────────────────────────────────────────
+  /parts:
+    get:
+      tags: [Parts]
+      summary: List parts
+      parameters:
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Parts list
+    post:
+      tags: [Parts]
+      summary: Create part
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Part'
+      responses:
+        '201':
+          description: Created
+
+  /parts/{id}:
+    get:
+      tags: [Parts]
+      summary: Get part by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Part object
+    put:
+      tags: [Parts]
+      summary: Update part
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Part'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Parts]
+      summary: Delete part
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /parts/{id}/status:
+    patch:
+      tags: [Parts]
+      summary: Update part status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+
+  # ─────────────────────────────────────────────
+  # JOB ASSIGNMENT
+  # ─────────────────────────────────────────────
+  /job-assignment:
+    get:
+      tags: [Job Assignment]
+      summary: List job assignments
+      responses:
+        '200':
+          description: Assignments list
+
+  /job-assignment/assign:
+    post:
+      tags: [Job Assignment]
+      summary: Assign mechanic to a work order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [work_order_id, mechanic_id]
+              properties:
+                work_order_id:
+                  type: integer
+                mechanic_id:
+                  type: integer
+      responses:
+        '200':
+          description: Assigned
+
+  /job-assignment/unassign:
+    post:
+      tags: [Job Assignment]
+      summary: Unassign mechanic from work order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                work_order_id:
+                  type: integer
+      responses:
+        '200':
+          description: Unassigned
+
+  /job-assignment/auto-assign:
+    post:
+      tags: [Job Assignment]
+      summary: Auto-assign mechanic to one work order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                work_order_id:
+                  type: integer
+      responses:
+        '200':
+          description: Auto-assigned
+
+  /job-assignment/auto-assign-all:
+    post:
+      tags: [Job Assignment]
+      summary: Auto-assign mechanics to all unassigned orders
+      responses:
+        '200':
+          description: All assigned
+
+  # ─────────────────────────────────────────────
+  # SERVICE PRICING
+  # ─────────────────────────────────────────────
+  /service-pricing:
+    get:
+      tags: [Service Pricing]
+      summary: List service pricing rules
+      responses:
+        '200':
+          description: Pricing list
+    post:
+      tags: [Service Pricing]
+      summary: Create pricing rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /service-pricing/{id}:
+    get:
+      tags: [Service Pricing]
+      summary: Get pricing rule by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Pricing rule
+    put:
+      tags: [Service Pricing]
+      summary: Update pricing rule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Service Pricing]
+      summary: Delete pricing rule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /service-pricing/surge:
+    get:
+      tags: [Service Pricing]
+      summary: List surge pricing rules
+      responses:
+        '200':
+          description: Surge rules
+    post:
+      tags: [Service Pricing]
+      summary: Create surge rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /service-pricing/surge/{id}:
+    put:
+      tags: [Service Pricing]
+      summary: Update surge rule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Service Pricing]
+      summary: Delete surge rule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /service-pricing/calculate:
+    post:
+      tags: [Service Pricing]
+      summary: Calculate price for a service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Price calculation result
+
+  /service-pricing/distance:
+    post:
+      tags: [Service Pricing]
+      summary: Calculate distance-based pricing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Distance price result
+
+  /service-pricing/bulk-toggle:
+    post:
+      tags: [Service Pricing]
+      summary: Bulk toggle pricing rules active/inactive
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: integer
+                active:
+                  type: boolean
+      responses:
+        '200':
+          description: Toggled
+
+  /service-pricing/duplicate/{id}:
+    post:
+      tags: [Service Pricing]
+      summary: Duplicate a pricing rule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '201':
+          description: Duplicate created
+
+  /service-pricing/history:
+    get:
+      tags: [Service Pricing]
+      summary: Pricing history
+      responses:
+        '200':
+          description: History
+
+  /service-pricing/stats:
+    get:
+      tags: [Service Pricing]
+      summary: Pricing statistics
+      responses:
+        '200':
+          description: Stats
+
+  # ─────────────────────────────────────────────
+  # SERVICE STATUS
+  # ─────────────────────────────────────────────
+  /service-status:
+    get:
+      tags: [Service Status]
+      summary: List service status entries (workshop admin)
+      responses:
+        '200':
+          description: Status list
+
+  /service-status/my-orders:
+    get:
+      tags: [Service Status]
+      summary: Get orders for current logged-in mechanic
+      responses:
+        '200':
+          description: Orders list
+
+  /service-status/start-trip:
+    post:
+      tags: [Service Status]
+      summary: Start trip for an order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                work_order_id:
+                  type: integer
+      responses:
+        '200':
+          description: Trip started
+
+  /service-status/{token}:
+    get:
+      tags: [Service Status]
+      summary: Public — get status by token (customer tracking)
+      security: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Status info
+
+  /service-status/{token}/order:
+    get:
+      tags: [Service Status]
+      summary: Get order details by service token (admin)
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order with status
+
+  /service-status/{token}/scan:
+    post:
+      tags: [Service Status]
+      summary: Scan barcode to update order status
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Scanned
+
+  /service-status/{token}/status:
+    patch:
+      tags: [Service Status]
+      summary: Update order status via token
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                note:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+
+  /service-status/{token}/send-sms:
+    post:
+      tags: [Service Status]
+      summary: Send SMS to customer for order
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+      responses:
+        '200':
+          description: SMS sent
+
+  # ─────────────────────────────────────────────
+  # CASH PAYMENT
+  # ─────────────────────────────────────────────
+  /cash-payment:
+    get:
+      tags: [Cash Payment]
+      summary: List cash payment records
+      responses:
+        '200':
+          description: Cash records
+
+  /cash-payment/summary:
+    get:
+      tags: [Cash Payment]
+      summary: Cash payment summary
+      responses:
+        '200':
+          description: Summary
+
+  /cash-payment/settlements:
+    get:
+      tags: [Cash Payment]
+      summary: List settlements
+      responses:
+        '200':
+          description: Settlements list
+
+  /cash-payment/settle:
+    post:
+      tags: [Cash Payment]
+      summary: Settle all pending cash for current mechanic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Settled
+
+  /cash-payment/{id}/settle:
+    post:
+      tags: [Cash Payment]
+      summary: Settle specific cash record
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Settled
+
+  /cash-payment/schedules:
+    get:
+      tags: [Cash Payment]
+      summary: List settlement schedules
+      responses:
+        '200':
+          description: Schedules
+    post:
+      tags: [Cash Payment]
+      summary: Create settlement schedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /cash-payment/schedules/{id}:
+    put:
+      tags: [Cash Payment]
+      summary: Update settlement schedule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Cash Payment]
+      summary: Delete settlement schedule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /cash-payment/settlements/{id}/approve:
+    patch:
+      tags: [Cash Payment]
+      summary: Approve a settlement
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Approved
+
+  /cash-payment/settlements/export:
+    get:
+      tags: [Cash Payment]
+      summary: Export settlements as CSV/Excel
+      responses:
+        '200':
+          description: File download
+
+  /cash-payment/check-late-penalties:
+    post:
+      tags: [Cash Payment]
+      summary: Check and apply late payment penalties
+      responses:
+        '200':
+          description: Penalties checked
+
+  # ─────────────────────────────────────────────
+  # WARRANTY CLAIMS
+  # ─────────────────────────────────────────────
+  /warranty-claims:
+    get:
+      tags: [Warranty Claims]
+      summary: List warranty claims
+      responses:
+        '200':
+          description: Claims list
+    post:
+      tags: [Warranty Claims]
+      summary: Submit warranty claim
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                work_order_id:
+                  type: integer
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Submitted
+
+  /warranty-claims/{id}:
+    get:
+      tags: [Warranty Claims]
+      summary: Get warranty claim by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Claim object
+    delete:
+      tags: [Warranty Claims]
+      summary: Delete warranty claim
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /warranty-claims/{id}/status:
+    patch:
+      tags: [Warranty Claims]
+      summary: Update warranty claim status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [pending, approved, rejected, resolved]
+      responses:
+        '200':
+          description: Status updated
+
+  # ─────────────────────────────────────────────
+  # MECHANIC EARNINGS
+  # ─────────────────────────────────────────────
+  /mechanic-earnings:
+    get:
+      tags: [Mechanic Earnings]
+      summary: List all mechanic earnings (admin)
+      responses:
+        '200':
+          description: Earnings list
+    post:
+      tags: [Mechanic Earnings]
+      summary: Record a mechanic earning entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /mechanic-earnings/my:
+    get:
+      tags: [Mechanic Earnings]
+      summary: Get current mechanic's earnings
+      responses:
+        '200':
+          description: My earnings
+
+  /mechanic-earnings/summary:
+    get:
+      tags: [Mechanic Earnings]
+      summary: Earnings summary
+      responses:
+        '200':
+          description: Summary
+
+  /mechanic-earnings/bulk-pay:
+    post:
+      tags: [Mechanic Earnings]
+      summary: Bulk pay multiple mechanics
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mechanic_ids:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        '200':
+          description: Paid
+
+  /mechanic-earnings/recalculate:
+    post:
+      tags: [Mechanic Earnings]
+      summary: Recalculate earnings
+      responses:
+        '200':
+          description: Recalculated
+
+  /mechanic-earnings/{id}:
+    patch:
+      tags: [Mechanic Earnings]
+      summary: Update earning record
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  # ─────────────────────────────────────────────
+  # MECHANIC DOCUMENTS
+  # ─────────────────────────────────────────────
+  /mechanic-documents:
+    get:
+      tags: [Mechanic Documents]
+      summary: List mechanic documents
+      responses:
+        '200':
+          description: Documents list
+    post:
+      tags: [Mechanic Documents]
+      summary: Upload mechanic document
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                document_type:
+                  type: string
+      responses:
+        '201':
+          description: Uploaded
+
+  /mechanic-documents/{id}:
+    patch:
+      tags: [Mechanic Documents]
+      summary: Update mechanic document (e.g., verify)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [pending, approved, rejected]
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Mechanic Documents]
+      summary: Delete mechanic document
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  # ─────────────────────────────────────────────
+  # MECHANIC APP
+  # ─────────────────────────────────────────────
+  /mechanic-app/login:
+    post:
+      tags: [Mechanic App]
+      summary: Mechanic app login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, password]
+              properties:
+                phone:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+
+  /mechanic-app/login-v2:
+    post:
+      tags: [Mechanic App]
+      summary: Mechanic app login v2 (phone + OTP based)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Login successful
+
+  /mechanic-app/refresh:
+    post:
+      tags: [Mechanic App]
+      summary: Refresh mechanic auth token
+      security: []
+      responses:
+        '200':
+          description: Refreshed
+
+  /mechanic-app/verify-phone/send:
+    post:
+      tags: [Mechanic App]
+      summary: Send OTP for phone verification
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+      responses:
+        '200':
+          description: OTP sent
+
+  /mechanic-app/verify-phone/check:
+    post:
+      tags: [Mechanic App]
+      summary: Verify OTP
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                otp:
+                  type: string
+      responses:
+        '200':
+          description: Verified
+
+  /mechanic-app/forgot-password:
+    post:
+      tags: [Mechanic App]
+      summary: Mechanic forgot password
+      security: []
+      responses:
+        '200':
+          description: OTP / reset link sent
+
+  /mechanic-app/reset-password:
+    post:
+      tags: [Mechanic App]
+      summary: Mechanic reset password
+      security: []
+      responses:
+        '200':
+          description: Reset
+
+  /mechanic-app/logout:
+    post:
+      tags: [Mechanic App]
+      summary: Mechanic logout
+      responses:
+        '200':
+          description: Logged out
+
+  /mechanic-app/profile:
+    get:
+      tags: [Mechanic App]
+      summary: Get mechanic profile
+      responses:
+        '200':
+          description: Profile
+    put:
+      tags: [Mechanic App]
+      summary: Update mechanic profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  /mechanic-app/profile/avatar:
+    post:
+      tags: [Mechanic App]
+      summary: Upload profile avatar
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Avatar uploaded
+
+  /mechanic-app/change-password:
+    post:
+      tags: [Mechanic App]
+      summary: Change mechanic password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                current_password:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        '200':
+          description: Changed
+
+  /mechanic-app/ratings:
+    get:
+      tags: [Mechanic App]
+      summary: Get own ratings
+      responses:
+        '200':
+          description: Ratings
+
+  /mechanic-app/dashboard:
+    get:
+      tags: [Mechanic App]
+      summary: Mechanic dashboard summary
+      responses:
+        '200':
+          description: Dashboard data
+
+  /mechanic-app/config:
+    get:
+      tags: [Mechanic App]
+      summary: Get app configuration
+      security: []
+      responses:
+        '200':
+          description: Config object
+
+  /mechanic-app/orders:
+    get:
+      tags: [Mechanic App]
+      summary: Get assigned orders
+      responses:
+        '200':
+          description: Orders list
+
+  /mechanic-app/orders/{id}:
+    get:
+      tags: [Mechanic App]
+      summary: Get order details
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Order detail
+
+  /mechanic-app/orders/{id}/accept:
+    post:
+      tags: [Mechanic App]
+      summary: Accept a work order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Accepted
+
+  /mechanic-app/orders/{id}/reject:
+    post:
+      tags: [Mechanic App]
+      summary: Reject a work order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Rejected
+
+  /mechanic-app/pickups:
+    get:
+      tags: [Mechanic App]
+      summary: Get pending pickups
+      responses:
+        '200':
+          description: Pickups list
+
+  /mechanic-app/pickups/{workOrderId}/en-route:
+    post:
+      tags: [Mechanic App]
+      summary: Mark en-route to pickup
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Updated
+
+  /mechanic-app/pickups/{workOrderId}/arrived:
+    post:
+      tags: [Mechanic App]
+      summary: Mark arrived at pickup location
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Updated
+
+  /mechanic-app/pickups/{workOrderId}/proof-photo:
+    post:
+      tags: [Mechanic App]
+      summary: Upload pickup proof photo
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Photo uploaded
+
+  /mechanic-app/pickups/{workOrderId}/signature:
+    post:
+      tags: [Mechanic App]
+      summary: Upload pickup signature
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Signature uploaded
+
+  /mechanic-app/pickups/{workOrderId}/confirm:
+    post:
+      tags: [Mechanic App]
+      summary: Confirm pickup completion
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Confirmed
+
+  /mechanic-app/pickups/{workOrderId}/fail:
+    post:
+      tags: [Mechanic App]
+      summary: Mark pickup as failed
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Marked failed
+
+  /mechanic-app/orders/{workOrderId}/start-service:
+    post:
+      tags: [Mechanic App]
+      summary: Start servicing a work order
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Service started
+
+  /mechanic-app/orders/{workOrderId}/deliver:
+    post:
+      tags: [Mechanic App]
+      summary: Mark work order as delivered
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Delivered
+
+  /mechanic-app/orders/{workOrderId}/fail:
+    post:
+      tags: [Mechanic App]
+      summary: Mark work order as failed
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Marked failed
+
+  /mechanic-app/orders/{workOrderId}/return:
+    post:
+      tags: [Mechanic App]
+      summary: Mark work order as returned
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Returned
+
+  /mechanic-app/orders/{workOrderId}/proof-photo:
+    post:
+      tags: [Mechanic App]
+      summary: Upload proof photo for order
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Uploaded
+
+  /mechanic-app/orders/{workOrderId}/signature:
+    post:
+      tags: [Mechanic App]
+      summary: Upload signature for order
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Uploaded
+
+  /mechanic-app/orders/{workOrderId}/photos:
+    get:
+      tags: [Mechanic App]
+      summary: List photos for an order
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Photos list
+
+  /mechanic-app/photos/{photoId}:
+    delete:
+      tags: [Mechanic App]
+      summary: Delete a photo
+      parameters:
+        - in: path
+          name: photoId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /mechanic-app/scan:
+    post:
+      tags: [Mechanic App]
+      summary: Scan a barcode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                barcode:
+                  type: string
+      responses:
+        '200':
+          description: Scan result
+
+  /mechanic-app/cash/pending:
+    get:
+      tags: [Mechanic App]
+      summary: Get pending cash collections
+      responses:
+        '200':
+          description: Pending list
+
+  /mechanic-app/cash/{workOrderId}/collect:
+    post:
+      tags: [Mechanic App]
+      summary: Collect cash for order
+      parameters:
+        - in: path
+          name: workOrderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Collected
+
+  /mechanic-app/cash/summary:
+    get:
+      tags: [Mechanic App]
+      summary: Cash summary for mechanic
+      responses:
+        '200':
+          description: Summary
+
+  /mechanic-app/progress:
+    get:
+      tags: [Mechanic App]
+      summary: Get current order progress
+      responses:
+        '200':
+          description: Progress
+
+  /mechanic-app/location:
+    post:
+      tags: [Mechanic App]
+      summary: Update mechanic location
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+      responses:
+        '200':
+          description: Updated
+
+  /mechanic-app/location/batch:
+    post:
+      tags: [Mechanic App]
+      summary: Batch update mechanic locations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  /mechanic-app/notifications:
+    get:
+      tags: [Mechanic App]
+      summary: Get mechanic notifications
+      responses:
+        '200':
+          description: Notifications list
+
+  /mechanic-app/notifications/{id}/read:
+    patch:
+      tags: [Mechanic App]
+      summary: Mark notification as read
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Marked read
+
+  /mechanic-app/notifications/read-all:
+    post:
+      tags: [Mechanic App]
+      summary: Mark all notifications as read
+      responses:
+        '200':
+          description: All read
+
+  /mechanic-app/device-token:
+    post:
+      tags: [Mechanic App]
+      summary: Register FCM device token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                platform:
+                  type: string
+                  enum: [android, ios]
+      responses:
+        '200':
+          description: Registered
+
+  /mechanic-app/history:
+    get:
+      tags: [Mechanic App]
+      summary: Get order history
+      responses:
+        '200':
+          description: History
+
+  /mechanic-app/earnings:
+    get:
+      tags: [Mechanic App]
+      summary: Get total earnings
+      responses:
+        '200':
+          description: Earnings
+
+  /mechanic-app/earnings/daily:
+    get:
+      tags: [Mechanic App]
+      summary: Get daily earnings breakdown
+      responses:
+        '200':
+          description: Daily earnings
+
+  /mechanic-app/settings:
+    get:
+      tags: [Mechanic App]
+      summary: Get mechanic app settings
+      responses:
+        '200':
+          description: Settings
+
+  /mechanic-app/go-online:
+    post:
+      tags: [Mechanic App]
+      summary: Set mechanic status to online
+      responses:
+        '200':
+          description: Online
+
+  /mechanic-app/go-offline:
+    post:
+      tags: [Mechanic App]
+      summary: Set mechanic status to offline
+      responses:
+        '200':
+          description: Offline
+
+  /mechanic-app/on-break:
+    post:
+      tags: [Mechanic App]
+      summary: Set mechanic status to on break
+      responses:
+        '200':
+          description: On break
+
+  /mechanic-app/support/ticket:
+    post:
+      tags: [Mechanic App]
+      summary: Submit support ticket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject:
+                  type: string
+                message:
+                  type: string
+      responses:
+        '201':
+          description: Ticket created
+
+  /mechanic-app/support/report-issue:
+    post:
+      tags: [Mechanic App]
+      summary: Report a technical issue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Reported
+
+  /mechanic-app/support/tickets:
+    get:
+      tags: [Mechanic App]
+      summary: List own support tickets
+      responses:
+        '200':
+          description: Tickets list
+
+  /mechanic-app/support/tickets/{id}:
+    get:
+      tags: [Mechanic App]
+      summary: Get support ticket details
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Ticket detail
+
+  /mechanic-app/support/tickets/{id}/reply:
+    post:
+      tags: [Mechanic App]
+      summary: Reply to support ticket
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+      responses:
+        '200':
+          description: Reply sent
+
+  /mechanic-app/help:
+    get:
+      tags: [Mechanic App]
+      summary: Get help content
+      security: []
+      responses:
+        '200':
+          description: Help content
+
+  # ─────────────────────────────────────────────
+  # CUSTOMER AUTH
+  # ─────────────────────────────────────────────
+  /customer-auth/register:
+    post:
+      tags: [Customer Auth]
+      summary: Register new customer account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [full_name, email, password]
+              properties:
+                full_name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                phone:
+                  type: string
+      responses:
+        '201':
+          description: Registered
+
+  /customer-auth/verify-email:
+    post:
+      tags: [Customer Auth]
+      summary: Verify email with token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Email verified
+
+  /customer-auth/login:
+    post:
+      tags: [Customer Auth]
+      summary: Customer login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+
+  /customer-auth/forgot-password:
+    post:
+      tags: [Customer Auth]
+      summary: Customer forgot password
+      security: []
+      responses:
+        '200':
+          description: Reset email sent
+
+  /customer-auth/reset-password:
+    post:
+      tags: [Customer Auth]
+      summary: Customer reset password
+      security: []
+      responses:
+        '200':
+          description: Reset
+
+  /customer-auth/session:
+    get:
+      tags: [Customer Auth]
+      summary: Get current customer session
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: Session data
+
+  /customer-auth/change-password:
+    put:
+      tags: [Customer Auth]
+      summary: Change customer password
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: Changed
+
+  /customer-auth/logout:
+    post:
+      tags: [Customer Auth]
+      summary: Customer logout
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: Logged out
+
+  # ─────────────────────────────────────────────
+  # CUSTOMER PORTAL
+  # ─────────────────────────────────────────────
+  /customer-portal/work-orders:
+    get:
+      tags: [Customer Portal]
+      summary: List my work orders
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: Work orders list
+    post:
+      tags: [Customer Portal]
+      summary: Create work order (customer)
+      security:
+        - customerBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /customer-portal/work-orders/{id}:
+    get:
+      tags: [Customer Portal]
+      summary: Get work order details
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Work order detail
+    put:
+      tags: [Customer Portal]
+      summary: Update work order
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Customer Portal]
+      summary: Cancel/delete work order
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Cancelled
+
+  /customer-portal/work-orders/{id}/invoice:
+    get:
+      tags: [Customer Portal]
+      summary: Download invoice for work order
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Invoice PDF
+
+  /customer-portal/work-orders/{id}/service-status:
+    get:
+      tags: [Customer Portal]
+      summary: Get service status for a work order
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Status
+
+  /customer-portal/service-status/{query}:
+    get:
+      tags: [Customer Portal]
+      summary: Track order by token or order ID
+      security: []
+      parameters:
+        - in: path
+          name: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Status
+
+  /customer-portal/work-orders/{id}/parts:
+    get:
+      tags: [Customer Portal]
+      summary: Get parts for a work order
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Parts list
+
+  /customer-portal/stats:
+    get:
+      tags: [Customer Portal]
+      summary: Customer dashboard stats
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: Stats
+
+  /customer-portal/invoices:
+    get:
+      tags: [Customer Portal]
+      summary: List my invoices
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: Invoices list
+
+  /customer-portal/invoices/{id}/pdf:
+    get:
+      tags: [Customer Portal]
+      summary: Download invoice PDF
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: PDF file
+
+  /customer-portal/wallet:
+    get:
+      tags: [Customer Portal]
+      summary: Get customer wallet balance
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: Wallet data
+
+  /customer-portal/cash-summary:
+    get:
+      tags: [Customer Portal]
+      summary: Customer cash summary
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: Summary
+
+  /customer-portal/vehicles:
+    get:
+      tags: [Customer Portal]
+      summary: Get my vehicles
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: Vehicles list
+    post:
+      tags: [Customer Portal]
+      summary: Add a vehicle
+      security:
+        - customerBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Vehicle'
+      responses:
+        '201':
+          description: Added
+
+  /customer-portal/profile:
+    get:
+      tags: [Customer Portal]
+      summary: Get customer profile
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: Profile
+    put:
+      tags: [Customer Portal]
+      summary: Update customer profile
+      security:
+        - customerBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  /customer-portal/saved-addresses:
+    get:
+      tags: [Customer Portal]
+      summary: List saved addresses
+      security:
+        - customerBearerAuth: []
+      responses:
+        '200':
+          description: Addresses list
+    post:
+      tags: [Customer Portal]
+      summary: Add saved address
+      security:
+        - customerBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                address:
+                  type: string
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+      responses:
+        '201':
+          description: Saved
+
+  /customer-portal/saved-addresses/{id}:
+    put:
+      tags: [Customer Portal]
+      summary: Update saved address
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Customer Portal]
+      summary: Delete saved address
+      security:
+        - customerBearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  # ─────────────────────────────────────────────
+  # WALLET
+  # ─────────────────────────────────────────────
+  /wallet:
+    get:
+      tags: [Wallet]
+      summary: Get wallet balance
+      responses:
+        '200':
+          description: Wallet object
+
+  /wallet/topup:
+    post:
+      tags: [Wallet]
+      summary: Top up wallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                method:
+                  type: string
+      responses:
+        '200':
+          description: Topped up
+
+  /wallet/transactions:
+    get:
+      tags: [Wallet]
+      summary: List wallet transactions
+      responses:
+        '200':
+          description: Transactions
+
+  /wallet/collect-cash:
+    post:
+      tags: [Wallet]
+      summary: Collect cash into wallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Collected
+
+  /wallet/settle-cash:
+    post:
+      tags: [Wallet]
+      summary: Settle cash from wallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Settled
+
+  /wallet/cash-orders:
+    get:
+      tags: [Wallet]
+      summary: List cash orders
+      responses:
+        '200':
+          description: Cash orders
+
+  /wallet/bank-accounts:
+    get:
+      tags: [Wallet]
+      summary: List bank accounts
+      responses:
+        '200':
+          description: Bank accounts
+    post:
+      tags: [Wallet]
+      summary: Add bank account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bank_name:
+                  type: string
+                account_number:
+                  type: string
+                iban:
+                  type: string
+      responses:
+        '201':
+          description: Added
+
+  /wallet/bank-accounts/{id}:
+    delete:
+      tags: [Wallet]
+      summary: Delete bank account
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /wallet/withdraw:
+    post:
+      tags: [Wallet]
+      summary: Request withdrawal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                bank_account_id:
+                  type: integer
+      responses:
+        '200':
+          description: Withdrawal requested
+
+  /wallet/withdrawals:
+    get:
+      tags: [Wallet]
+      summary: List withdrawal requests
+      responses:
+        '200':
+          description: Withdrawals
+
+  /wallet/withdrawals/{id}:
+    patch:
+      tags: [Wallet]
+      summary: Update withdrawal status (admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [approved, rejected, completed]
+      responses:
+        '200':
+          description: Updated
+
+  /wallet/hold:
+    post:
+      tags: [Wallet]
+      summary: Place a hold on funds
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Hold placed
+
+  /wallet/release:
+    post:
+      tags: [Wallet]
+      summary: Release a hold on funds
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Released
+
+  /wallet/settle-prepaid:
+    post:
+      tags: [Wallet]
+      summary: Settle prepaid balance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Settled
+
+  # ─────────────────────────────────────────────
+  # INVOICES
+  # ─────────────────────────────────────────────
+  /invoices:
+    get:
+      tags: [Invoices]
+      summary: List invoices
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Invoice list
+    post:
+      tags: [Invoices]
+      summary: Create invoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Invoice'
+      responses:
+        '201':
+          description: Created
+
+  /invoices/stats:
+    get:
+      tags: [Invoices]
+      summary: Invoice statistics
+      responses:
+        '200':
+          description: Stats
+
+  /invoices/generate-missing:
+    post:
+      tags: [Invoices]
+      summary: Generate missing invoices for completed orders
+      responses:
+        '201':
+          description: Generated
+
+  /invoices/refund:
+    post:
+      tags: [Invoices]
+      summary: Issue a refund
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                invoice_id:
+                  type: integer
+                amount:
+                  type: number
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Refund issued
+
+  /invoices/refunds/list:
+    get:
+      tags: [Invoices]
+      summary: List refunds
+      responses:
+        '200':
+          description: Refunds
+
+  /invoices/refunds/{id}:
+    patch:
+      tags: [Invoices]
+      summary: Update refund status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  /invoices/aging/report:
+    get:
+      tags: [Invoices]
+      summary: Aging report for outstanding invoices
+      responses:
+        '200':
+          description: Aging report
+
+  /invoices/from-settlement:
+    post:
+      tags: [Invoices]
+      summary: Create invoice from settlement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /invoices/{id}:
+    get:
+      tags: [Invoices]
+      summary: Get invoice by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Invoice object
+    delete:
+      tags: [Invoices]
+      summary: Delete invoice
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /invoices/{id}/pdf:
+    get:
+      tags: [Invoices]
+      summary: Download invoice PDF
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+
+  /invoices/{id}/status:
+    patch:
+      tags: [Invoices]
+      summary: Update invoice status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+
+  /invoices/{id}/credit-note:
+    post:
+      tags: [Invoices]
+      summary: Issue credit note for invoice
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Credit note issued
+
+  /invoices/{id}/send-email:
+    post:
+      tags: [Invoices]
+      summary: Send invoice by email
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Email sent
+
+  /invoices/{id}/record-payment:
+    post:
+      tags: [Invoices]
+      summary: Record manual payment for invoice
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                method:
+                  type: string
+      responses:
+        '200':
+          description: Payment recorded
+
+  # ─────────────────────────────────────────────
+  # FINANCIAL ADVANCED
+  # ─────────────────────────────────────────────
+  /financial-advanced/currencies:
+    get:
+      tags: [Financial Advanced]
+      summary: Get supported currencies
+      responses:
+        '200':
+          description: Currency list
+
+  /financial-advanced/currencies/rates:
+    post:
+      tags: [Financial Advanced]
+      summary: Get exchange rates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                base:
+                  type: string
+                targets:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Rates
+
+  /financial-advanced/currencies/convert:
+    post:
+      tags: [Financial Advanced]
+      summary: Convert currency amount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                from:
+                  type: string
+                to:
+                  type: string
+      responses:
+        '200':
+          description: Conversion result
+
+  /financial-advanced/escrow:
+    get:
+      tags: [Financial Advanced]
+      summary: List escrow holds
+      responses:
+        '200':
+          description: Escrow list
+
+  /financial-advanced/escrow/hold:
+    post:
+      tags: [Financial Advanced]
+      summary: Place escrow hold
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Hold placed
+
+  /financial-advanced/escrow/release:
+    post:
+      tags: [Financial Advanced]
+      summary: Release escrow hold
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Released
+
+  /financial-advanced/subscriptions/plans:
+    get:
+      tags: [Financial Advanced]
+      summary: List subscription plans
+      responses:
+        '200':
+          description: Plans
+    post:
+      tags: [Financial Advanced]
+      summary: Create subscription plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /financial-advanced/subscriptions/plans/{id}:
+    put:
+      tags: [Financial Advanced]
+      summary: Update subscription plan
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Financial Advanced]
+      summary: Delete subscription plan
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /financial-advanced/subscriptions/subscribe:
+    post:
+      tags: [Financial Advanced]
+      summary: Subscribe to a plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plan_id:
+                  type: integer
+      responses:
+        '200':
+          description: Subscribed
+
+  /financial-advanced/subscriptions:
+    get:
+      tags: [Financial Advanced]
+      summary: List all subscriptions
+      responses:
+        '200':
+          description: Subscriptions
+
+  /financial-advanced/subscriptions/{id}:
+    patch:
+      tags: [Financial Advanced]
+      summary: Update subscription
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  /financial-advanced/recurring-invoices:
+    get:
+      tags: [Financial Advanced]
+      summary: List recurring invoices
+      responses:
+        '200':
+          description: Recurring invoices
+    post:
+      tags: [Financial Advanced]
+      summary: Create recurring invoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /financial-advanced/recurring-invoices/{id}:
+    put:
+      tags: [Financial Advanced]
+      summary: Update recurring invoice
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Financial Advanced]
+      summary: Delete recurring invoice
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /financial-advanced/recurring-invoices/generate:
+    post:
+      tags: [Financial Advanced]
+      summary: Manually generate recurring invoices
+      responses:
+        '200':
+          description: Generated
+
+  /financial-advanced/payment-links:
+    get:
+      tags: [Financial Advanced]
+      summary: List payment links
+      responses:
+        '200':
+          description: Payment links
+    post:
+      tags: [Financial Advanced]
+      summary: Create payment link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                description:
+                  type: string
+                expires_at:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Created
+
+  /financial-advanced/payment-links/{id}:
+    delete:
+      tags: [Financial Advanced]
+      summary: Delete payment link
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /financial-advanced/bank-reconcile:
+    post:
+      tags: [Financial Advanced]
+      summary: Run bank reconciliation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Reconciliation result
+
+  # ─────────────────────────────────────────────
+  # STRIPE
+  # ─────────────────────────────────────────────
+  /stripe/create-checkout-session:
+    post:
+      tags: [Stripe]
+      summary: Create Stripe checkout session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plan_id:
+                  type: string
+                success_url:
+                  type: string
+                cancel_url:
+                  type: string
+      responses:
+        '200':
+          description: Checkout session URL
+
+  /stripe/preview-upgrade:
+    post:
+      tags: [Stripe]
+      summary: Preview subscription upgrade cost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_plan_id:
+                  type: string
+      responses:
+        '200':
+          description: Upgrade preview
+
+  /stripe/upgrade-subscription:
+    post:
+      tags: [Stripe]
+      summary: Upgrade subscription plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_plan_id:
+                  type: string
+      responses:
+        '200':
+          description: Upgraded
+
+  /stripe/verify-session:
+    post:
+      tags: [Stripe]
+      summary: Verify Stripe checkout session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id:
+                  type: string
+      responses:
+        '200':
+          description: Session verified
+
+  /stripe/webhook:
+    post:
+      tags: [Stripe]
+      summary: Stripe webhook receiver
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Acknowledged
+
+  /stripe/subscription-status:
+    get:
+      tags: [Stripe]
+      summary: Get current subscription status
+      responses:
+        '200':
+          description: Status
+
+  /stripe/create-portal-session:
+    post:
+      tags: [Stripe]
+      summary: Create Stripe customer portal session
+      responses:
+        '200':
+          description: Portal URL
+
+  # ─────────────────────────────────────────────
+  # WEBHOOKS
+  # ─────────────────────────────────────────────
+  /webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhook configurations
+      responses:
+        '200':
+          description: Webhooks list
+    post:
+      tags: [Webhooks]
+      summary: Create webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                events:
+                  type: array
+                  items:
+                    type: string
+                secret:
+                  type: string
+      responses:
+        '201':
+          description: Created
+
+  /webhooks/events:
+    get:
+      tags: [Webhooks]
+      summary: List available webhook event types
+      responses:
+        '200':
+          description: Event types
+
+  /webhooks/deliveries:
+    get:
+      tags: [Webhooks]
+      summary: List webhook delivery attempts
+      responses:
+        '200':
+          description: Deliveries
+
+  /webhooks/{id}:
+    put:
+      tags: [Webhooks]
+      summary: Update webhook
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Webhooks]
+      summary: Delete webhook
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /webhooks/{id}/toggle:
+    patch:
+      tags: [Webhooks]
+      summary: Toggle webhook active/inactive
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Toggled
+
+  /webhooks/{id}/test:
+    post:
+      tags: [Webhooks]
+      summary: Send test event to webhook
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Test sent
+
+  /webhooks/retry/{deliveryId}:
+    post:
+      tags: [Webhooks]
+      summary: Retry a failed webhook delivery
+      parameters:
+        - in: path
+          name: deliveryId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Retried
+
+  # ─────────────────────────────────────────────
+  # REPORTS
+  # ─────────────────────────────────────────────
+  /reports:
+    get:
+      tags: [Reports]
+      summary: General report
+      parameters:
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Report data
+
+  /reports/performance:
+    get:
+      tags: [Reports]
+      summary: Performance report (mechanic/service)
+      responses:
+        '200':
+          description: Performance data
+
+  /reports/financial:
+    get:
+      tags: [Reports]
+      summary: Financial report
+      responses:
+        '200':
+          description: Financial data
+
+  /reports/commission:
+    get:
+      tags: [Reports]
+      summary: Commission report
+      responses:
+        '200':
+          description: Commission data
+
+  /reports/platform-revenue:
+    get:
+      tags: [Reports]
+      summary: Platform-wide revenue report
+      responses:
+        '200':
+          description: Revenue data
+
+  /reports/financial-comparison:
+    get:
+      tags: [Reports]
+      summary: Financial comparison (period-over-period)
+      responses:
+        '200':
+          description: Comparison data
+
+  /reports/merchant-earnings:
+    get:
+      tags: [Reports]
+      summary: Merchant earnings report
+      responses:
+        '200':
+          description: Earnings
+
+  /reports/tax-summary:
+    get:
+      tags: [Reports]
+      summary: Tax summary report
+      responses:
+        '200':
+          description: Tax data
+
+  /reports/financial/export:
+    get:
+      tags: [Reports]
+      summary: Export financial report
+      parameters:
+        - in: query
+          name: format
+          schema:
+            type: string
+            enum: [csv, xlsx, pdf]
+      responses:
+        '200':
+          description: File download
+
+  /reports/discrepancies:
+    get:
+      tags: [Reports]
+      summary: Financial discrepancy report
+      responses:
+        '200':
+          description: Discrepancies
+
+  /reports/schedules:
+    get:
+      tags: [Reports]
+      summary: List scheduled reports
+      responses:
+        '200':
+          description: Schedules
+    post:
+      tags: [Reports]
+      summary: Create scheduled report
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /reports/schedules/{id}:
+    put:
+      tags: [Reports]
+      summary: Update scheduled report
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Reports]
+      summary: Delete scheduled report
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /reports/schedules/{id}/send-now:
+    post:
+      tags: [Reports]
+      summary: Send scheduled report immediately
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Sent
+
+  /reports/schedules/preview:
+    post:
+      tags: [Reports]
+      summary: Preview report before scheduling
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Preview data
+
+  /reports/profit-loss:
+    get:
+      tags: [Reports]
+      summary: Profit & loss statement
+      responses:
+        '200':
+          description: P&L data
+
+  /reports/margin-analysis:
+    get:
+      tags: [Reports]
+      summary: Margin analysis report
+      responses:
+        '200':
+          description: Margin data
+
+  /reports/forecast:
+    get:
+      tags: [Reports]
+      summary: Revenue forecast
+      responses:
+        '200':
+          description: Forecast data
+
+  /reports/insights:
+    get:
+      tags: [Reports]
+      summary: AI-powered business insights
+      responses:
+        '200':
+          description: Insights
+
+  # ─────────────────────────────────────────────
+  # STATS
+  # ─────────────────────────────────────────────
+  /stats:
+    get:
+      tags: [Stats]
+      summary: Dashboard statistics
+      parameters:
+        - in: query
+          name: period
+          schema:
+            type: string
+            enum: [today, week, month, year]
+      responses:
+        '200':
+          description: Dashboard stats
+
+  # ─────────────────────────────────────────────
+  # SETTINGS
+  # ─────────────────────────────────────────────
+  /settings:
+    get:
+      tags: [Settings]
+      summary: Get workshop settings
+      responses:
+        '200':
+          description: Settings object
+    put:
+      tags: [Settings]
+      summary: Update workshop settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  /settings/users:
+    get:
+      tags: [Settings]
+      summary: List workshop users
+      responses:
+        '200':
+          description: Users list
+    post:
+      tags: [Settings]
+      summary: Create workshop user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [full_name, email, role]
+              properties:
+                full_name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                role:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '201':
+          description: Created
+
+  /settings/users/{id}:
+    put:
+      tags: [Settings]
+      summary: Update workshop user
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Settings]
+      summary: Delete workshop user
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /settings/categories:
+    get:
+      tags: [Settings]
+      summary: List service categories
+      responses:
+        '200':
+          description: Categories
+    post:
+      tags: [Settings]
+      summary: Create service category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Created
+
+  /settings/categories/{id}:
+    put:
+      tags: [Settings]
+      summary: Update category
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Settings]
+      summary: Delete category
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /settings/modules:
+    get:
+      tags: [Settings]
+      summary: List available modules
+      responses:
+        '200':
+          description: Modules list
+
+  /settings/roles:
+    get:
+      tags: [Settings]
+      summary: List roles
+      responses:
+        '200':
+          description: Roles list
+    post:
+      tags: [Settings]
+      summary: Create role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                permissions:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Created
+
+  /settings/roles/{id}:
+    get:
+      tags: [Settings]
+      summary: Get role by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Role object
+    put:
+      tags: [Settings]
+      summary: Update role
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Settings]
+      summary: Delete role
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  # ─────────────────────────────────────────────
+  # NOTIFICATIONS
+  # ─────────────────────────────────────────────
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: List sent notifications
+      responses:
+        '200':
+          description: Notifications
+
+  /notifications/stats:
+    get:
+      tags: [Notifications]
+      summary: Notification statistics
+      responses:
+        '200':
+          description: Stats
+
+  /notifications/send:
+    post:
+      tags: [Notifications]
+      summary: Send notification (SMS/Email/Push)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, recipient]
+              properties:
+                type:
+                  type: string
+                  enum: [sms, email, push]
+                recipient:
+                  type: string
+                message:
+                  type: string
+                template_id:
+                  type: integer
+      responses:
+        '200':
+          description: Sent
+
+  /notifications/templates:
+    get:
+      tags: [Notifications]
+      summary: List notification templates
+      responses:
+        '200':
+          description: Templates
+
+  /notifications/templates/{id}:
+    put:
+      tags: [Notifications]
+      summary: Update notification template
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  /notifications/templates/reset:
+    post:
+      tags: [Notifications]
+      summary: Reset templates to defaults
+      responses:
+        '200':
+          description: Reset
+
+  /notifications/sms-test:
+    post:
+      tags: [Notifications]
+      summary: Send test SMS
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                message:
+                  type: string
+      responses:
+        '200':
+          description: Test SMS sent
+
+  /notifications/sms-logs:
+    get:
+      tags: [Notifications]
+      summary: Get SMS logs
+      responses:
+        '200':
+          description: SMS logs
+
+  /notifications/email-test:
+    post:
+      tags: [Notifications]
+      summary: Send test email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Test email sent
+
+  /notifications/email-logs:
+    get:
+      tags: [Notifications]
+      summary: Get email logs
+      responses:
+        '200':
+          description: Email logs
+
+  /notifications/push/vapid-key:
+    get:
+      tags: [Notifications]
+      summary: Get VAPID public key for web push
+      security: []
+      responses:
+        '200':
+          description: VAPID key
+
+  /notifications/push/subscribe:
+    post:
+      tags: [Notifications]
+      summary: Subscribe to web push notifications
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Subscribed
+
+  /notifications/push/unsubscribe:
+    post:
+      tags: [Notifications]
+      summary: Unsubscribe from web push
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Unsubscribed
+
+  /notifications/push/test:
+    post:
+      tags: [Notifications]
+      summary: Send test web push notification
+      responses:
+        '200':
+          description: Test sent
+
+  /notifications/push/test-fcm:
+    post:
+      tags: [Notifications]
+      summary: Send test FCM push notification
+      responses:
+        '200':
+          description: Test sent
+
+  /notifications/push/broadcast:
+    post:
+      tags: [Notifications]
+      summary: Broadcast push to all subscribed users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                body:
+                  type: string
+      responses:
+        '200':
+          description: Broadcast sent
+
+  /notifications/subscribe:
+    post:
+      tags: [Notifications]
+      summary: Subscribe (web push)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Subscribed
+
+  /notifications/register-device:
+    post:
+      tags: [Notifications]
+      summary: Register mobile device token (FCM)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                platform:
+                  type: string
+                  enum: [android, ios]
+      responses:
+        '200':
+          description: Registered
+
+  /notifications/unregister-device:
+    delete:
+      tags: [Notifications]
+      summary: Unregister device token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Unregistered
+
+  # ─────────────────────────────────────────────
+  # USER NOTIFICATIONS
+  # ─────────────────────────────────────────────
+  /user-notifications:
+    get:
+      tags: [User Notifications]
+      summary: List user in-app notifications
+      responses:
+        '200':
+          description: Notifications
+    delete:
+      tags: [User Notifications]
+      summary: Delete all notifications
+      responses:
+        '200':
+          description: Deleted
+
+  /user-notifications/unread-count:
+    get:
+      tags: [User Notifications]
+      summary: Get unread notification count
+      responses:
+        '200':
+          description: Count
+
+  /user-notifications/{id}/read:
+    post:
+      tags: [User Notifications]
+      summary: Mark notification as read
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Marked read
+
+  /user-notifications/read-all:
+    post:
+      tags: [User Notifications]
+      summary: Mark all notifications as read
+      responses:
+        '200':
+          description: All read
+
+  /user-notifications/{id}:
+    delete:
+      tags: [User Notifications]
+      summary: Delete a notification
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  # ─────────────────────────────────────────────
+  # INTEGRATIONS
+  # ─────────────────────────────────────────────
+  /integrations:
+    get:
+      tags: [Integrations]
+      summary: List integrations
+      responses:
+        '200':
+          description: Integrations list
+    post:
+      tags: [Integrations]
+      summary: Create integration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                type:
+                  type: string
+                config:
+                  type: object
+      responses:
+        '201':
+          description: Created
+
+  /integrations/{id}:
+    get:
+      tags: [Integrations]
+      summary: Get integration by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Integration object
+    put:
+      tags: [Integrations]
+      summary: Update integration
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Integrations]
+      summary: Delete integration
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /integrations/{id}/toggle:
+    patch:
+      tags: [Integrations]
+      summary: Toggle integration active/inactive
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Toggled
+
+  /integrations/{id}/regenerate:
+    post:
+      tags: [Integrations]
+      summary: Regenerate integration API key
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Regenerated
+
+  # ─────────────────────────────────────────────
+  # UPLOADS
+  # ─────────────────────────────────────────────
+  /uploads/logo/{variant}:
+    post:
+      tags: [Uploads]
+      summary: Upload workshop logo
+      parameters:
+        - in: path
+          name: variant
+          required: false
+          schema:
+            type: string
+            enum: [primary, secondary, favicon]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Logo uploaded
+
+  /uploads/mechanics/{id}/photo:
+    post:
+      tags: [Uploads]
+      summary: Upload mechanic profile photo
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Photo uploaded
+
+  /uploads/work-orders/{id}/proof:
+    post:
+      tags: [Uploads]
+      summary: Upload work order proof photo
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Photo uploaded
+
+  /uploads/stops/{stopId}/proof:
+    post:
+      tags: [Uploads]
+      summary: Upload stop proof photo
+      parameters:
+        - in: path
+          name: stopId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Photo uploaded
+
+  /uploads/work-orders/{id}/signature:
+    post:
+      tags: [Uploads]
+      summary: Upload customer signature for work order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Signature uploaded
+
+  # ─────────────────────────────────────────────
+  # PUBLIC API
+  # ─────────────────────────────────────────────
+  /public/pricing:
+    get:
+      tags: [Public API]
+      summary: Get public pricing / plan info
+      security: []
+      responses:
+        '200':
+          description: Pricing plans
+
+  /public/contact:
+    post:
+      tags: [Public API]
+      summary: Submit contact form
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, message]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                message:
+                  type: string
+      responses:
+        '200':
+          description: Message received
+
+  /public/start-trial:
+    post:
+      tags: [Public API]
+      summary: Start a free trial
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workshop_name, email, password, phone]
+              properties:
+                workshop_name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                phone:
+                  type: string
+      responses:
+        '201':
+          description: Trial started
+
+  /public/signup:
+    post:
+      tags: [Public API]
+      summary: Public signup
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Signed up
+
+  /public/verify-email:
+    get:
+      tags: [Public API]
+      summary: Verify email via link
+      security: []
+      parameters:
+        - in: query
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Email verified
+
+  /public/resend-verification:
+    post:
+      tags: [Public API]
+      summary: Resend verification email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Sent
+
+  /public/check-availability:
+    post:
+      tags: [Public API]
+      summary: Check email / subdomain availability
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Availability result
+
+  # ─────────────────────────────────────────────
+  # CAREERS
+  # ─────────────────────────────────────────────
+  /careers:
+    get:
+      tags: [Careers]
+      summary: List active job listings (public)
+      security: []
+      responses:
+        '200':
+          description: Job listings
+
+  /admin/careers:
+    get:
+      tags: [Careers]
+      summary: List all job listings (admin)
+      responses:
+        '200':
+          description: Job listings
+    post:
+      tags: [Careers]
+      summary: Create job listing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                location:
+                  type: string
+      responses:
+        '201':
+          description: Created
+
+  # ─────────────────────────────────────────────
+  # LEGAL PAGES
+  # ─────────────────────────────────────────────
+  /legal-pages:
+    get:
+      tags: [Legal Pages]
+      summary: Get legal pages (public)
+      security: []
+      parameters:
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [terms, privacy, refund]
+      responses:
+        '200':
+          description: Legal page content
+
+  /admin/legal-pages:
+    get:
+      tags: [Legal Pages]
+      summary: List legal pages (admin)
+      responses:
+        '200':
+          description: Pages list
+    post:
+      tags: [Legal Pages]
+      summary: Create legal page
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                content:
+                  type: string
+      responses:
+        '201':
+          description: Created
+
+  # ─────────────────────────────────────────────
+  # SUPER ADMIN
+  # ─────────────────────────────────────────────
+  /super-admin/login:
+    post:
+      tags: [Super Admin]
+      summary: Super admin login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+
+  /super-admin/session:
+    get:
+      tags: [Super Admin]
+      summary: Get super admin session
+      responses:
+        '200':
+          description: Session
+
+  /super-admin/search:
+    get:
+      tags: [Super Admin]
+      summary: Global search
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results
+
+  /super-admin/dashboard:
+    get:
+      tags: [Super Admin]
+      summary: Platform dashboard
+      responses:
+        '200':
+          description: Dashboard data
+
+  /super-admin/stats:
+    get:
+      tags: [Super Admin]
+      summary: Platform statistics
+      responses:
+        '200':
+          description: Stats
+
+  /super-admin/workshops:
+    get:
+      tags: [Super Admin]
+      summary: List all workshops
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: status
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Workshops list
+    post:
+      tags: [Super Admin]
+      summary: Create workshop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /super-admin/workshops/{id}:
+    get:
+      tags: [Super Admin]
+      summary: Get workshop by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Workshop object
+    put:
+      tags: [Super Admin]
+      summary: Update workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Super Admin]
+      summary: Delete workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /super-admin/workshops/{id}/toggle-status:
+    post:
+      tags: [Super Admin]
+      summary: Toggle workshop active/suspended
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Toggled
+
+  /super-admin/workshops/{id}/extend-trial:
+    post:
+      tags: [Super Admin]
+      summary: Extend trial for workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                days:
+                  type: integer
+      responses:
+        '200':
+          description: Extended
+
+  /super-admin/workshops/{id}/stop-trial:
+    post:
+      tags: [Super Admin]
+      summary: Stop trial for workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Trial stopped
+
+  /super-admin/workshops/{id}/activate-plan:
+    post:
+      tags: [Super Admin]
+      summary: Activate subscription plan for workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plan_id:
+                  type: integer
+      responses:
+        '200':
+          description: Plan activated
+
+  /super-admin/workshops/{id}/send-welcome-email:
+    post:
+      tags: [Super Admin]
+      summary: Send welcome email to workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Sent
+
+  /super-admin/workshops/{id}/send-payment-reminder:
+    post:
+      tags: [Super Admin]
+      summary: Send payment reminder to workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Sent
+
+  /super-admin/workshops/{id}/billing-history:
+    get:
+      tags: [Super Admin]
+      summary: Get billing history for workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Billing history
+
+  /super-admin/workshops/{id}/trial-status:
+    get:
+      tags: [Super Admin]
+      summary: Get trial status for workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Trial status
+
+  /super-admin/workshops/{id}/max-users:
+    post:
+      tags: [Super Admin]
+      summary: Set max users for workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                max_users:
+                  type: integer
+      responses:
+        '200':
+          description: Set
+
+  /super-admin/workshops/{id}/users:
+    post:
+      tags: [Super Admin]
+      summary: Add user to workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Added
+
+  /super-admin/workshops/{id}/modules:
+    post:
+      tags: [Super Admin]
+      summary: Assign modules to workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                modules:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Modules assigned
+
+  /super-admin/workshops/{id}/usage:
+    get:
+      tags: [Super Admin]
+      summary: Get usage stats for workshop
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Usage data
+
+  /super-admin/workshops/{id}/impersonate:
+    post:
+      tags: [Super Admin]
+      summary: Impersonate a workshop (get JWT)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Impersonation token
+
+  /super-admin/modules:
+    get:
+      tags: [Super Admin]
+      summary: List all platform modules
+      responses:
+        '200':
+          description: Modules list
+
+  /super-admin/analytics:
+    get:
+      tags: [Super Admin]
+      summary: Platform-wide analytics
+      responses:
+        '200':
+          description: Analytics
+
+  /super-admin/settings:
+    get:
+      tags: [Super Admin]
+      summary: Get platform settings
+      responses:
+        '200':
+          description: Settings
+    put:
+      tags: [Super Admin]
+      summary: Update platform settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  /super-admin/platform-users:
+    get:
+      tags: [Super Admin]
+      summary: List platform admin users
+      responses:
+        '200':
+          description: Users list
+    post:
+      tags: [Super Admin]
+      summary: Create platform admin user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /super-admin/platform-users/{id}:
+    put:
+      tags: [Super Admin]
+      summary: Update platform admin user
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Super Admin]
+      summary: Delete platform admin user
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /super-admin/activity-log:
+    get:
+      tags: [Super Admin]
+      summary: Get platform activity log
+      responses:
+        '200':
+          description: Activity log
+
+  /super-admin/barcodes/overview:
+    get:
+      tags: [Super Admin]
+      summary: Barcode overview (all workshops)
+      responses:
+        '200':
+          description: Overview
+
+  /super-admin/barcodes/workshop/{workshopId}:
+    get:
+      tags: [Super Admin]
+      summary: Barcodes for a specific workshop
+      parameters:
+        - in: path
+          name: workshopId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Barcodes
+
+  /super-admin/barcodes/workshop/{workshopId}/generate:
+    post:
+      tags: [Super Admin]
+      summary: Generate barcodes for workshop
+      parameters:
+        - in: path
+          name: workshopId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                count:
+                  type: integer
+      responses:
+        '201':
+          description: Generated
+
+  /super-admin/barcodes/{id}:
+    delete:
+      tags: [Super Admin]
+      summary: Delete barcode
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /super-admin/audit-log:
+    get:
+      tags: [Super Admin]
+      summary: Audit log (enhanced)
+      responses:
+        '200':
+          description: Audit log
+
+  /super-admin/audit-log/stats:
+    get:
+      tags: [Super Admin]
+      summary: Audit log stats
+      responses:
+        '200':
+          description: Stats
+
+  /super-admin/plans:
+    get:
+      tags: [Super Admin]
+      summary: List subscription plans
+      responses:
+        '200':
+          description: Plans
+    post:
+      tags: [Super Admin]
+      summary: Create subscription plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /super-admin/plans/{id}:
+    delete:
+      tags: [Super Admin]
+      summary: Delete plan
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /super-admin/subscriptions:
+    get:
+      tags: [Super Admin]
+      summary: List all subscriptions
+      responses:
+        '200':
+          description: Subscriptions
+
+  /super-admin/subscriptions/{id}:
+    put:
+      tags: [Super Admin]
+      summary: Update subscription
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  /super-admin/invoices:
+    get:
+      tags: [Super Admin]
+      summary: List platform invoices
+      responses:
+        '200':
+          description: Invoices
+    post:
+      tags: [Super Admin]
+      summary: Create platform invoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /super-admin/invoices/{id}:
+    put:
+      tags: [Super Admin]
+      summary: Update platform invoice
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  /super-admin/announcements:
+    get:
+      tags: [Super Admin]
+      summary: List announcements
+      responses:
+        '200':
+          description: Announcements
+    post:
+      tags: [Super Admin]
+      summary: Create announcement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                message:
+                  type: string
+                type:
+                  type: string
+      responses:
+        '201':
+          description: Created
+
+  /super-admin/announcements/{id}:
+    put:
+      tags: [Super Admin]
+      summary: Update announcement
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Super Admin]
+      summary: Delete announcement
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /super-admin/bulk/toggle-status:
+    post:
+      tags: [Super Admin]
+      summary: Bulk toggle workshop status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: integer
+                status:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+
+  /super-admin/bulk/assign-modules:
+    post:
+      tags: [Super Admin]
+      summary: Bulk assign modules to workshops
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  /super-admin/bulk/assign-plan:
+    post:
+      tags: [Super Admin]
+      summary: Bulk assign plan to workshops
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+
+  /super-admin/bulk/delete:
+    post:
+      tags: [Super Admin]
+      summary: Bulk delete workshops
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /super-admin/system-health:
+    get:
+      tags: [Super Admin]
+      summary: System health check
+      responses:
+        '200':
+          description: Health status
+
+  /super-admin/system-health/tables:
+    get:
+      tags: [Super Admin]
+      summary: Database tables health
+      responses:
+        '200':
+          description: Tables health
+
+  /super-admin/email-templates:
+    get:
+      tags: [Super Admin]
+      summary: List email templates
+      responses:
+        '200':
+          description: Templates
+    post:
+      tags: [Super Admin]
+      summary: Create email template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /super-admin/email-templates/recipients:
+    get:
+      tags: [Super Admin]
+      summary: Get email template recipients
+      responses:
+        '200':
+          description: Recipients
+
+  /super-admin/email-templates/{id}:
+    put:
+      tags: [Super Admin]
+      summary: Update email template
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Super Admin]
+      summary: Delete email template
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /super-admin/email-templates/{id}/toggle:
+    patch:
+      tags: [Super Admin]
+      summary: Toggle email template active/inactive
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Toggled
+
+  /super-admin/email-templates/{id}/duplicate:
+    post:
+      tags: [Super Admin]
+      summary: Duplicate email template
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '201':
+          description: Duplicated
+
+  /super-admin/email-templates/{id}/test:
+    post:
+      tags: [Super Admin]
+      summary: Send test email using template
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                recipient:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Test sent
+
+  /super-admin/email-templates/{id}/send:
+    post:
+      tags: [Super Admin]
+      summary: Send email template to recipients
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Sent
+
+  /super-admin/revenue:
+    get:
+      tags: [Super Admin]
+      summary: Platform revenue overview
+      responses:
+        '200':
+          description: Revenue data
+
+  /super-admin/export/tenant/{id}:
+    get:
+      tags: [Super Admin]
+      summary: Export tenant data
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Export file
+
+  /super-admin/export/tenants-csv:
+    get:
+      tags: [Super Admin]
+      summary: Export all tenants as CSV
+      responses:
+        '200':
+          description: CSV file
+
+  /super-admin/export/audit-logs:
+    get:
+      tags: [Super Admin]
+      summary: Export audit logs
+      responses:
+        '200':
+          description: Export file
+
+  /super-admin/export/platform-summary:
+    get:
+      tags: [Super Admin]
+      summary: Export platform summary report
+      responses:
+        '200':
+          description: Export file
+
+  /super-admin/onboard-tenant:
+    post:
+      tags: [Super Admin]
+      summary: Onboard a new tenant workshop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Onboarded
+
+  /super-admin/tickets:
+    get:
+      tags: [Super Admin]
+      summary: List support tickets
+      responses:
+        '200':
+          description: Tickets list
+    post:
+      tags: [Super Admin]
+      summary: Create support ticket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+
+  /super-admin/tickets/{id}:
+    get:
+      tags: [Super Admin]
+      summary: Get ticket by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Ticket
+    put:
+      tags: [Super Admin]
+      summary: Update ticket
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Super Admin]
+      summary: Delete ticket
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /super-admin/tickets/{id}/reply:
+    post:
+      tags: [Super Admin]
+      summary: Reply to support ticket
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+      responses:
+        '200':
+          description: Reply sent
+
+  /super-admin/branding:
+    get:
+      tags: [Super Admin]
+      summary: Get platform-level branding
+      responses:
+        '200':
+          description: Branding data
+
+  /super-admin/branding/{tenantId}:
+    get:
+      tags: [Super Admin]
+      summary: Get branding for a tenant
+      parameters:
+        - in: path
+          name: tenantId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Branding data
+    put:
+      tags: [Super Admin]
+      summary: Update branding for a tenant
+      parameters:
+        - in: path
+          name: tenantId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Super Admin]
+      summary: Delete tenant branding
+      parameters:
+        - in: path
+          name: tenantId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /super-admin/landing-contacts:
+    get:
+      tags: [Super Admin]
+      summary: List landing page contact submissions
+      responses:
+        '200':
+          description: Contacts
+
+  /super-admin/landing-contacts/{id}:
+    put:
+      tags: [Super Admin]
+      summary: Update contact submission status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Super Admin]
+      summary: Delete contact submission
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /super-admin/trial-requests:
+    get:
+      tags: [Super Admin]
+      summary: List trial requests
+      responses:
+        '200':
+          description: Requests
+
+  /super-admin/trial-requests/{id}:
+    put:
+      tags: [Super Admin]
+      summary: Update trial request
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Super Admin]
+      summary: Delete trial request
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+
+  /super-admin/landing-stats:
+    get:
+      tags: [Super Admin]
+      summary: Get landing page stats
+      responses:
+        '200':
+          description: Stats
+
+  # ─────────────────────────────────────────────
+  # EXTERNAL API v1  (API-key authenticated)
+  # ─────────────────────────────────────────────
+  /v1/work_orders:
+    get:
+      tags: [External API v1]
+      summary: List work orders (API key)
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            maximum: 200
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: service_status_token
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated work orders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkOrder'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          description: Invalid or missing API key
+    post:
+      tags: [External API v1]
+      summary: Create work order (API key)
+      security:
+        - apiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkOrder'
+      responses:
+        '201':
+          description: Work order created
+
+  /v1/work_orders/{id}:
+    get:
+      tags: [External API v1]
+      summary: Get work order by ID or token (API key)
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Numeric ID or service_status_token
+      responses:
+        '200':
+          description: Work order with status history
+        '404':
+          description: Not found
+
+  /v1/work_orders/{id}/cancel:
+    patch:
+      tags: [External API v1]
+      summary: Cancel work order (API key)
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Cancelled
+
+  /v1/service-status/{token}:
+    get:
+      tags: [External API v1]
+      summary: Get service status by token (API key)
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Status object
+
+  /v1/customers:
+    get:
+      tags: [External API v1]
+      summary: List customers (API key)
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: search
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Customers list
+
+  /v1/webhooks:
+    get:
+      tags: [External API v1]
+      summary: List webhooks (API key)
+      security:
+        - apiKeyAuth: []
+      responses:
+        '200':
+          description: Webhooks list
+
+  /v1/docs:
+    get:
+      tags: [External API v1]
+      summary: External API documentation page
+      security: []
+      responses:
+        '200':
+          description: API docs HTML page

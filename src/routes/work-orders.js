@@ -143,6 +143,7 @@ router.get('/', async (req, res) => {
     const [{ total }] = await query(`SELECT COUNT(*) as total FROM work_orders wo ${where}`, params);
     const workOrders = await query(
       `SELECT wo.*, m.full_name as mechanic_name, m.phone as mechanic_phone,
+              m.specialty as mechanic_specialty, m.status as mechanic_status,
               c.full_name as customer_name_ref, b.name as service_bay_name,
               v.make as vehicle_make, v.model as vehicle_model, v.plate_number as vehicle_plate_number,
               DATE_ADD(wo.created_at, INTERVAL 4 HOUR) AS created_at,
@@ -446,6 +447,7 @@ router.get('/:id', async (req, res) => {
   try {
     const [workOrder] = await query(
       `SELECT wo.*, m.full_name as mechanic_name, m.phone as mechanic_phone,
+              m.specialty as mechanic_specialty, m.status as mechanic_status,
               c.full_name as customer_name_ref, c.phone as customer_phone_ref, c.company_name,
               b.name as service_bay_name,
               v.make as vehicle_make, v.model as vehicle_model, v.year as vehicle_year,

@@ -7,7 +7,16 @@ import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import swaggerUi from 'swagger-ui-express';
+import { readFileSync } from 'fs';
+import { load as yamlLoad } from 'js-yaml';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { config } from './config.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const swaggerDocument = yamlLoad(readFileSync(join(__dirname, 'swagger.yaml'), 'utf8'));
 import { initSocket } from './lib/socket.js';
 
 // ── Cron / background jobs ────────────────────────────────────────────────
@@ -78,6 +87,12 @@ app.use('/uploads', express.static(new URL('../uploads', import.meta.url).pathna
 app.get('/health', (req, res) => {
   res.json({ success: true, service: 'car-workshop-backend', status: 'ok', time: new Date().toISOString() });
 });
+
+// ── Swagger UI ───────────────────────────────────────────────────────────
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+  customSiteTitle: 'Car Workshop API Docs',
+  swaggerOptions: { persistAuthorization: true },
+}));
 
 // ── Core platform ───────────────────────────────────────────────────────
 app.use('/api/auth', authRouter);

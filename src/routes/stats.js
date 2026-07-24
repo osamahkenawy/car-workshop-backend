@@ -230,10 +230,10 @@ router.get('/', authMiddleware, async (req, res) => {
         daily_chart: dailyChart,
         orders_by_status: workOrdersByStatus,
         top_zones: topServiceBays,
-        top_drivers: topMechanics,
+        top_mechanics: topMechanics,
         recent_orders: recentWorkOrders,
-        driver_utilization: mechanicUtilization,
-        driver_workload: mechanicWorkload,
+        mechanic_utilization: mechanicUtilization,
+        mechanic_workload: mechanicWorkload,
         orders_by_hour: hourlyData,
       }
     });
