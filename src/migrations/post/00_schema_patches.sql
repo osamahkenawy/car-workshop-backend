@@ -60,6 +60,29 @@ SET @col := (SELECT COUNT(*) FROM information_schema.columns
 SET @sql := IF(@col = 0, 'ALTER TABLE users ADD COLUMN password_reset_expires DATETIME NULL', 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
+-- ── customers ────────────────────────────────────────────────────────────────
+-- routes/customers.js has always referenced client_category and area on
+-- INSERT/UPDATE/filter, but neither column was ever added to car_workshop.sql
+-- — every POST /api/customers has been failing with ER_BAD_FIELD_ERROR
+-- ("Unknown column 'client_category'"). Also widen `type` to match the
+-- 5 segments the frontend actually offers (individual/corporate/insurance/
+-- fleet/other) — the old 4-value enum had no room for corporate/insurance.
+SET @col := (SELECT COUNT(*) FROM information_schema.columns
+             WHERE table_schema = DATABASE() AND table_name = 'customers' AND column_name = 'client_category');
+SET @sql := IF(@col = 0, "ALTER TABLE customers ADD COLUMN client_category VARCHAR(50) DEFAULT 'other' AFTER type", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col := (SELECT COUNT(*) FROM information_schema.columns
+             WHERE table_schema = DATABASE() AND table_name = 'customers' AND column_name = 'area');
+SET @sql := IF(@col = 0, 'ALTER TABLE customers ADD COLUMN area VARCHAR(150) NULL AFTER address_line2', 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+ALTER TABLE customers MODIFY COLUMN type ENUM('individual','business','corporate','insurance','fleet','other') DEFAULT 'individual';
+
+-- Backfill client_category from the existing type value so pre-existing
+-- customers stay consistent with the filter/segment logic.
+UPDATE customers SET client_category = type WHERE client_category = 'other';
+
 -- ── countries (used by public signup) ──────────────────────────────────────
 CREATE TABLE IF NOT EXISTS countries (
   id INT AUTO_INCREMENT PRIMARY KEY,
