@@ -65,6 +65,15 @@ import { legalPublicRouter, legalAdminRouter } from './routes/legal-pages.js';
 import superAdminRouter from './routes/super-admin.js';
 import superAdminEnhancedRouter from './routes/super-admin-enhanced.js';
 
+// ── SOW: New modules ──────────────────────────────────────────────────────
+import appointmentsRouter from './routes/appointments.js';
+import vehicleReceivingRouter from './routes/vehicle-receiving.js';
+import estimatesRouter from './routes/estimates.js';
+import jobCardsRouter from './routes/job-cards.js';
+import inventoryRouter from './routes/inventory.js';
+import subletRouter, { proformaRouter, gatePassRouter } from './routes/sublet.js';
+import { vatRouter, evhcRouter, groupIntegrationRouter } from './routes/vat-evhc-integration.js';
+
 const app = express();
 const httpServer = http.createServer(app);
 
@@ -148,6 +157,28 @@ app.use('/api/admin/legal-pages', legalAdminRouter);
 // ── Super admin (platform owner) ────────────────────────────────────────
 app.use('/api/super-admin', superAdminRouter);
 app.use('/api/super-admin', superAdminEnhancedRouter);
+
+// ── SOW: Aftersales workshop operations ──────────────────────────────────
+// B1: Service reception & appointment management
+app.use('/api/appointments', appointmentsRouter);
+app.use('/api/vehicle-receiving', vehicleReceivingRouter);
+// B3: Service estimates & operations master
+app.use('/api/estimates', estimatesRouter);
+// B5: Job cards, technician time capture, QC, loaner vehicles
+app.use('/api/job-cards', jobCardsRouter);
+// B6: Inventory — requisitions, issues, returns, stock, reservations
+app.use('/api/inventory', inventoryRouter);
+// B8: Sublet management
+app.use('/api/sublet', subletRouter);
+// B9: Proforma invoices, gate passes
+app.use('/api/proforma', proformaRouter);
+app.use('/api/gate-pass', gatePassRouter);
+// B9: UAE VAT & FTA e-invoicing
+app.use('/api/vat', vatRouter);
+// B3 req 74: Electronic Vehicle Health Check
+app.use('/api/evhc', evhcRouter);
+// Section C: Group integration (Autostrad)
+app.use('/api/group-integration', groupIntegrationRouter);
 
 // ── 404 handler ──────────────────────────────────────────────────────────
 app.use((req, res) => {
