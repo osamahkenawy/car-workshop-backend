@@ -72,7 +72,7 @@ async function checkJobDelays() {
   // ── 1. Work orders past their estimated_delivery_at or scheduled_at ──
   const overdueOrders = await query(`
     SELECT o.id, o.work_order_number, o.workshop_id, o.mechanic_id, o.status,
-           o.customer_name, o.customer_address, o.scheduled_at,
+           o.customer_name, o.scheduled_at,
            o.estimated_delivery_at, o.created_at, o.picked_up_at,
            d.full_name as mechanic_name, d.user_id as mechanic_user_id
     FROM work_orders o
@@ -87,7 +87,7 @@ async function checkJobDelays() {
   // ── 2. Work orders stuck too long without progress ──
   const stuckAssigned = await query(`
     SELECT o.id, o.work_order_number, o.workshop_id, o.mechanic_id, o.status,
-           o.customer_name, o.customer_address, o.scheduled_at,
+           o.customer_name, o.scheduled_at,
            o.estimated_delivery_at, o.created_at, o.picked_up_at,
            d.full_name as mechanic_name, d.user_id as mechanic_user_id,
            TIMESTAMPDIFF(HOUR, COALESCE(
@@ -107,7 +107,7 @@ async function checkJobDelays() {
 
   const stuckInTransit = await query(`
     SELECT o.id, o.work_order_number, o.workshop_id, o.mechanic_id, o.status,
-           o.customer_name, o.customer_address, o.scheduled_at,
+           o.customer_name, o.scheduled_at,
            o.estimated_delivery_at, o.created_at, o.picked_up_at,
            d.full_name as mechanic_name, d.user_id as mechanic_user_id,
            TIMESTAMPDIFF(HOUR, COALESCE(o.picked_up_at, o.created_at), NOW()) as hours_in_transit
