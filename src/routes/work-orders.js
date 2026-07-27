@@ -525,6 +525,77 @@ router.get('/:id/photos', async (req, res) => {
   }
 });
 
+// GET /api/work-orders/:id/label — staff-facing job-sheet/label PDF for one work order
+router.get('/:id/label', async (req, res) => {
+  try {
+    const [order] = await query(
+      `SELECT o.*, b.name as service_bay_name, c.company_name, c.full_name as customer_full_name
+       FROM work_orders o
+       LEFT JOIN service_bays b ON o.service_bay_id = b.id
+       LEFT JOIN customers c ON o.customer_id = c.id
+       WHERE o.id = ? AND o.workshop_id = ?`,
+      [req.params.id, req.workshopId]
+    );
+    if (!order) return res.status(404).json({ success: false, message: 'Work order not found' });
+
+    const [itemCount] = await query('SELECT COUNT(*) as cnt FROM work_order_items WHERE work_order_id = ?', [order.id]);
+    order.item_count = itemCount?.cnt || 0;
+
+    const [workshop] = await query('SELECT * FROM workshops WHERE id = ?', [req.workshopId]);
+
+    let template = null;
+    try {
+      const [row] = await query("SELECT `value` FROM settings WHERE workshop_id = ? AND `key` = 'label_template'", [req.workshopId]);
+      if (row?.value) template = JSON.parse(row.value);
+    } catch (_) {}
+
+    const { generateServiceJobSheetPDF } = await import('../lib/service-job-sheet.js');
+    await generateServiceJobSheetPDF(res, { orders: [order], tenant: workshop, template });
+  } catch (err) {
+    console.error('[WorkOrders] label error:', err);
+    if (!res.headersSent) res.status(500).json({ success: false, message: 'Failed to generate label' });
+  }
+});
+
+// POST /api/work-orders/labels — batch job-sheet/label PDF for multiple work orders
+router.post('/labels', async (req, res) => {
+  try {
+    const { work_order_ids } = req.body;
+    if (!Array.isArray(work_order_ids) || !work_order_ids.length) {
+      return res.status(400).json({ success: false, message: 'work_order_ids required' });
+    }
+
+    const orders = await query(
+      `SELECT o.*, b.name as service_bay_name, c.company_name, c.full_name as customer_full_name
+       FROM work_orders o
+       LEFT JOIN service_bays b ON o.service_bay_id = b.id
+       LEFT JOIN customers c ON o.customer_id = c.id
+       WHERE o.id IN (?) AND o.workshop_id = ?`,
+      [work_order_ids, req.workshopId]
+    );
+    if (!orders.length) return res.status(404).json({ success: false, message: 'No matching work orders found' });
+
+    for (const order of orders) {
+      const [itemCount] = await query('SELECT COUNT(*) as cnt FROM work_order_items WHERE work_order_id = ?', [order.id]);
+      order.item_count = itemCount?.cnt || 0;
+    }
+
+    const [workshop] = await query('SELECT * FROM workshops WHERE id = ?', [req.workshopId]);
+
+    let template = null;
+    try {
+      const [row] = await query("SELECT `value` FROM settings WHERE workshop_id = ? AND `key` = 'label_template'", [req.workshopId]);
+      if (row?.value) template = JSON.parse(row.value);
+    } catch (_) {}
+
+    const { generateServiceJobSheetPDF } = await import('../lib/service-job-sheet.js');
+    await generateServiceJobSheetPDF(res, { orders, tenant: workshop, template });
+  } catch (err) {
+    console.error('[WorkOrders] batch labels error:', err);
+    if (!res.headersSent) res.status(500).json({ success: false, message: 'Failed to generate labels' });
+  }
+});
+
 // DELETE /api/work-orders/:id/photos/:photoId — delete a photo (admin)
 router.delete('/:id/photos/:photoId', async (req, res) => {
   try {
