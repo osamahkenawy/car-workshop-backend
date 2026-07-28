@@ -84,12 +84,12 @@ router.get('/', authMiddleware, async (req, res) => {
     );
     // Top service bays — show all active bays, LEFT JOIN so bays with 0 work orders still appear
     const topServiceBays = await query(
-      `SELECT z.name, z.emirate, z.base_service_fee, z.radius,
-              COUNT(o.id) as work_orders
+      `SELECT z.name, z.bay_type, z.bay_number,
+              COUNT(o.id) as orders_count
        FROM service_bays z
        LEFT JOIN work_orders o ON o.service_bay_id = z.id AND o.workshop_id = z.workshop_id
        WHERE z.workshop_id = ? AND z.is_active = 1
-       GROUP BY z.id ORDER BY work_orders DESC, z.name ASC LIMIT 5`,
+       GROUP BY z.id ORDER BY orders_count DESC, z.name ASC LIMIT 5`,
       [workshopId]
     );
     // Top mechanics this month
@@ -103,7 +103,7 @@ router.get('/', authMiddleware, async (req, res) => {
     );
     // Recent work orders
     const recentWorkOrders = await query(
-      `SELECT o.id, o.work_order_number, o.status, o.customer_name, o.customer_emirate,
+      `SELECT o.id, o.work_order_number, o.status, o.customer_name as recipient_name,
               o.service_fee, o.created_at, m.full_name as mechanic_name
        FROM work_orders o LEFT JOIN mechanics m ON o.mechanic_id = m.id
        WHERE o.workshop_id = ? ORDER BY o.created_at DESC LIMIT 10`,
