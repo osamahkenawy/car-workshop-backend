@@ -32,6 +32,7 @@ import authRouter from './routes/auth.js';
 import workshopsRouter from './routes/workshops.js';
 import mechanicsRouter from './routes/mechanics.js';
 import customersRouter from './routes/customers.js';
+import enquiriesRouter from './routes/enquiries.js';
 import serviceBaysRouter from './routes/service-bays.js';
 import vehiclesRouter from './routes/vehicles.js';
 import workOrdersRouter from './routes/work-orders.js';
@@ -108,6 +109,8 @@ app.use('/api/auth', authRouter);
 app.use('/api/workshops', workshopsRouter);
 app.use('/api/mechanics', mechanicsRouter);
 app.use('/api/customers', customersRouter);
+// Journey stages 01-02: enquiry capture and channel attribution
+app.use('/api/enquiries', enquiriesRouter);
 app.use('/api/service-bays', serviceBaysRouter);
 app.use('/api/vehicles', vehiclesRouter);
 
