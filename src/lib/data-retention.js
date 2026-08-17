@@ -121,7 +121,7 @@ export async function enforceDataRetention() {
                   <div style="margin-bottom:8px;"><strong>Growth</strong> — 1 year retention</div>
                   <div><strong>Enterprise</strong> — 5 years retention</div>
                 </div>
-                <a href="https://dispatch.traseallo.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Upgrade Plan</a>
+                <a href="https://dispatch.pioneercarservice.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Upgrade Plan</a>
               `);
               await sendEmail({ to: workshop.email, subject: `Data Retention: ${deletedCount} old work orders removed — ${workshop.name}`, html });
             } catch (e) { console.error(`[DataRetention] Email error:`, e.message); }
@@ -149,7 +149,7 @@ export async function enforceDataRetention() {
               <p>Hi <strong>${workshop.name}</strong>,</p>
               <p><strong>${upcoming7d.cnt}</strong> completed work orders will be automatically removed from your account within the next <strong>7 days</strong> due to your plan's ${retentionDays}-day data retention policy.</p>
               <p>To preserve your work order history, consider upgrading your plan:</p>
-              <a href="https://dispatch.traseallo.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#f97316;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Upgrade Now</a>
+              <a href="https://dispatch.pioneercarservice.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#f97316;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Upgrade Now</a>
               <p style="margin-top:20px;color:#6b7280;">This affects only completed work orders (completed, cancelled). Active work orders are never deleted.</p>
             `);
             await sendEmail({ to: workshop.email, subject: `⚠️ ${upcoming7d.cnt} work orders will be removed in 7 days — ${workshop.name}`, html });
@@ -176,7 +176,7 @@ export async function enforceDataRetention() {
               <p>Hi <strong>${workshop.name}</strong>,</p>
               <p><strong>${upcoming1d.cnt}</strong> completed work orders will be permanently removed <strong>tomorrow</strong> due to your ${retentionDays}-day data retention limit.</p>
               <p><strong>This action cannot be undone.</strong> Upgrade now to keep your data:</p>
-              <a href="https://dispatch.traseallo.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#dc2626;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Upgrade Now — Last Chance</a>
+              <a href="https://dispatch.pioneercarservice.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#dc2626;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Upgrade Now — Last Chance</a>
             `);
             await sendEmail({ to: workshop.email, subject: `🔴 FINAL: ${upcoming1d.cnt} work orders will be deleted tomorrow — ${workshop.name}`, html });
             results.warned_1d++;

@@ -6,7 +6,7 @@
  *  Uses firebase-admin SDK to send push notifications to mobile devices.
  *  Device tokens are stored in the `device_tokens` table.
  *
- *  Service account: src/traseallo-firebase-adminsdk-fbsvc-721ddb57da.json
+ *  Service account: src/pioneer-firebase-adminsdk-fbsvc-721ddb57da.json
  * ═══════════════════════════════════════════════════════════════════
  */
 
@@ -23,7 +23,7 @@ let fcmEnabled = false;
 
 function initFirebase() {
   try {
-    const saPath = resolve(__dirname, '..', 'traseallo-firebase-adminsdk-fbsvc-721ddb57da.json');
+    const saPath = resolve(__dirname, '..', 'pioneer-firebase-adminsdk-fbsvc-721ddb57da.json');
     const serviceAccount = JSON.parse(readFileSync(saPath, 'utf8'));
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
@@ -130,7 +130,7 @@ export async function sendFCMToUser(userId, payload) {
       const message = {
         token: t.device_token,
         notification: {
-          title: payload.title || 'Traseallo',
+          title: payload.title || 'Pioneer',
           body: payload.body || '',
         },
         data: {
@@ -143,7 +143,7 @@ export async function sendFCMToUser(userId, payload) {
         android: {
           priority: 'high',
           notification: {
-            channelId: 'traseallo_orders',
+            channelId: 'pioneer_orders',
             sound: 'default',
             icon: 'ic_notification',
             color: '#244066',

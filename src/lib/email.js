@@ -62,7 +62,7 @@ function getTransporter() {
         console.error('  EMAIL AUTH FAILED — check your EMAIL_USER / EMAIL_PASS');
         console.error('═══════════════════════════════════════════════════════════');
         console.error('  For Office 365:');
-        console.error('  1. admin.microsoft.com → Users → Active users → noreply@traseallo.com');
+        console.error('  1. admin.microsoft.com → Users → Active users → noreply@pioneercarservice.com');
         console.error('  2. Mail tab → Manage email apps → Enable "Authenticated SMTP"');
         console.error('  OR use App Password if MFA is enabled');
         console.error('═══════════════════════════════════════════════════════════\n');
@@ -76,7 +76,7 @@ function getTransporter() {
 
 /**
  * Get the "From" display name for a workshop.
- * Falls back to: workshop.name → EMAIL_NAME env → "Trasealla Solutions"
+ * Falls back to: workshop.name → EMAIL_NAME env → "Pioneer Solutions"
  */
 async function getFromName(workshopId) {
   if (workshopId) {
@@ -94,7 +94,7 @@ async function getFromName(workshopId) {
       }
     } catch (e) { /* ignore, use fallback */ }
   }
-  return config.smtp.fromName || 'Trasealla Solutions';
+  return config.smtp.fromName || 'Pioneer Solutions';
 }
 
 /**
@@ -103,7 +103,7 @@ async function getFromName(workshopId) {
  */
 function getBaseUrl() {
   if (config.frontendUrl && config.frontendUrl !== 'http://localhost:5173') return config.frontendUrl;
-  if (process.env.NODE_ENV === 'production') return 'https://delivery.traseallo.com';
+  if (process.env.NODE_ENV === 'production') return 'https://delivery.pioneercarservice.com';
   return config.frontendUrl || 'http://localhost:5173';
 }
 
@@ -112,32 +112,32 @@ function getBaseUrl() {
  */
 function getApiBaseUrl() {
   return process.env.BACKEND_URL || (process.env.NODE_ENV === 'production'
-    ? 'https://delivery.traseallo.com'
+    ? 'https://delivery.pioneercarservice.com'
     : `http://localhost:${config.port || 4001}`);
 }
 
 /**
- * Default Traseallo logo URL — hosted from backend uploads so it works
+ * Default Pioneer logo URL — hosted from backend uploads so it works
  * in all email clients regardless of frontend state.
  */
-function getDefaultTraseAlloLogo() {
-  return `${getApiBaseUrl()}/uploads/logos/email/traseallo-logo.png`;
+function getDefaultPioneerLogo() {
+  return `${getApiBaseUrl()}/uploads/logos/email/pioneer-logo.png`;
 }
 
 /**
- * Get the Traseallo logo as a CID attachment for embedding in emails.
+ * Get the Pioneer logo as a CID attachment for embedding in emails.
  * Returns { src, attachment } where:
- *   - src = 'cid:traseallo-logo' (use in <img src="...">)
+ *   - src = 'cid:pioneer-logo' (use in <img src="...">)
  *   - attachment = Nodemailer attachment object to include in the email
  */
 function getLogoCidAttachment() {
-  const logoPath = path.resolve(__dirname, '../../uploads/logos/email/traseallo-logo.png');
+  const logoPath = path.resolve(__dirname, '../../uploads/logos/email/pioneer-logo.png');
   return {
-    src: 'cid:traseallo-logo',
+    src: 'cid:pioneer-logo',
     attachment: {
-      filename: 'traseallo-logo.png',
+      filename: 'pioneer-logo.png',
       path: logoPath,
-      cid: 'traseallo-logo',
+      cid: 'pioneer-logo',
       contentDisposition: 'inline',
     },
   };
@@ -163,10 +163,10 @@ function absoluteLogoUrl(rawUrl) {
 
 /**
  * Get workshop branding (name + logo URL).
- * Falls back to Traseallo logo when workshop has no logo set.
+ * Falls back to Pioneer logo when workshop has no logo set.
  */
 async function getWorkshopBranding(workshopId) {
-  const defaultLogo = getDefaultTraseAlloLogo();
+  const defaultLogo = getDefaultPioneerLogo();
   if (workshopId) {
     try {
       const rows = await query('SELECT name, logo_url, settings FROM workshops WHERE id = ?', [workshopId]);
@@ -177,7 +177,7 @@ async function getWorkshopBranding(workshopId) {
             ? (typeof rows[0].settings === 'string' ? JSON.parse(rows[0].settings) : rows[0].settings)
             : {};
         } catch (e) { /* ignore */ }
-        const name = settings.company_name || rows[0].name || 'Trasealla Solutions';
+        const name = settings.company_name || rows[0].name || 'Pioneer Solutions';
 
         // Only use workshop logo if it's a non-empty string
         const rawLogo = rows[0].logo_url;
@@ -189,7 +189,7 @@ async function getWorkshopBranding(workshopId) {
       }
     } catch (e) { /* ignore */ }
   }
-  return { name: 'Trasealla Solutions', logoUrl: defaultLogo, isSystem: true };
+  return { name: 'Pioneer Solutions', logoUrl: defaultLogo, isSystem: true };
 }
 
 /**
@@ -206,10 +206,10 @@ function buildEmailTemplate(opts, legacyBodyHtml) {
     const branding = opts || {};
     return buildEmailTemplate({
       logoUrl: branding.logoUrl,
-      logoAlt: branding.name || 'Traseallo',
+      logoAlt: branding.name || 'Pioneer',
       title: '',
       bodyHtml: legacyBodyHtml,
-      footerName: branding.name || 'Trasealla Solutions',
+      footerName: branding.name || 'Pioneer Solutions',
       isSystem: branding.isSystem !== false,
     });
   }
@@ -219,12 +219,12 @@ function buildEmailTemplate(opts, legacyBodyHtml) {
   const cidLogo = getLogoCidAttachment();
   const {
     logoUrl  = branding.logoUrl  || cidLogo.src,
-    logoAlt  = branding.name     || 'Traseallo',
+    logoAlt  = branding.name     || 'Pioneer',
     accentColor = '#f97316',
     title, subtitle,
     bodyHtml = opts.body || '',
     ctaText, ctaUrl, copyLink, expiryNote,
-    footerName = branding.name || 'Trasealla Solutions',
+    footerName = branding.name || 'Pioneer Solutions',
     isSystem   = branding.isSystem !== undefined ? branding.isSystem : true,
   } = opts;
   // Use CID for the system logo (when branding has no custom logo)
@@ -283,8 +283,8 @@ function buildEmailTemplate(opts, legacyBodyHtml) {
     </table>` : '';
 
   const footerHtml = isSystem
-    ? `Trasealla Solutions &nbsp;&bull;&nbsp; <a href="https://traseallo.com" style="color:#f97316;text-decoration:none;font-weight:500;">traseallo.com</a>`
-    : `${footerName} &nbsp;&bull;&nbsp; Powered by <a href="https://traseallo.com" style="color:#f97316;text-decoration:none;font-weight:500;">Trasealla Solutions</a>`;
+    ? `Pioneer Solutions &nbsp;&bull;&nbsp; <a href="https://pioneercarservice.com" style="color:#f97316;text-decoration:none;font-weight:500;">pioneercarservice.com</a>`
+    : `${footerName} &nbsp;&bull;&nbsp; Powered by <a href="https://pioneercarservice.com" style="color:#f97316;text-decoration:none;font-weight:500;">Pioneer Solutions</a>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -351,10 +351,10 @@ export async function sendEmail({ to, subject, html, text, tenantId, fromName, a
   const displayName = fromName || await getFromName(tenantId);
   const fromAddress = config.smtp.from || config.smtp.user;
 
-  // Auto-attach the Traseallo CID logo when the HTML references it
+  // Auto-attach the Pioneer CID logo when the HTML references it
   const allAttachments = Array.isArray(attachments) ? [...attachments] : [];
-  if (html && html.includes('cid:traseallo-logo')) {
-    const hasCidAlready = allAttachments.some(a => a.cid === 'traseallo-logo');
+  if (html && html.includes('cid:pioneer-logo')) {
+    const hasCidAlready = allAttachments.some(a => a.cid === 'pioneer-logo');
     if (!hasCidAlready) {
       allAttachments.push(getLogoCidAttachment().attachment);
     }
@@ -488,5 +488,5 @@ export function buildWorkOrderStatusEmail({ order, status, trackingUrl, branding
   });
 }
 
-export { buildEmailTemplate, getWorkshopBranding, getFromName, getDefaultTraseAlloLogo, getLogoCidAttachment };
-export default { sendEmail, sendNotificationEmail, buildWorkOrderStatusEmail, buildEmailTemplate, getWorkshopBranding, getDefaultTraseAlloLogo, getLogoCidAttachment };
+export { buildEmailTemplate, getWorkshopBranding, getFromName, getDefaultPioneerLogo, getLogoCidAttachment };
+export default { sendEmail, sendNotificationEmail, buildWorkOrderStatusEmail, buildEmailTemplate, getWorkshopBranding, getDefaultPioneerLogo, getLogoCidAttachment };

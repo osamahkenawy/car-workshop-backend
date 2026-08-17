@@ -348,11 +348,11 @@ router.get('/branding', async (req, res) => {
       );
     }
     if (!workshopRow) {
-      return res.json({ success: true, data: { name: 'Trasealla Solutions', logo_url: null, logo_url_white: null } });
+      return res.json({ success: true, data: { name: 'Pioneer Solutions', logo_url: null, logo_url_white: null } });
     }
     return res.json({ success: true, data: { name: workshopRow.name, logo_url: workshopRow.logo_url, logo_url_white: workshopRow.logo_url_white } });
   } catch (err) {
-    return res.json({ success: true, data: { name: 'Trasealla Solutions', logo_url: null, logo_url_white: null } });
+    return res.json({ success: true, data: { name: 'Pioneer Solutions', logo_url: null, logo_url_white: null } });
   }
 });
 

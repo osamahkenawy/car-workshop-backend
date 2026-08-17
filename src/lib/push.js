@@ -137,7 +137,7 @@ export async function sendPushToUser(userId, payload) {
   if (!subs.length) return { success: true, sent: 0, failed: 0 };
 
   const notifPayload = JSON.stringify({
-    title: payload.title || 'Trasealla Solutions',
+    title: payload.title || 'Pioneer Solutions',
     body:  payload.body  || '',
     icon:  payload.icon  || '/logo-192.png',
     badge: payload.badge || '/badge-72.png',
@@ -193,7 +193,7 @@ export async function sendPushToWorkshop(tenantId, payload) {
   if (!subs.length) return { success: true, sent: 0, failed: 0 };
 
   const notifPayload = JSON.stringify({
-    title: payload.title || 'Trasealla Solutions',
+    title: payload.title || 'Pioneer Solutions',
     body:  payload.body  || '',
     icon:  payload.icon  || '/logo-192.png',
     badge: payload.badge || '/badge-72.png',

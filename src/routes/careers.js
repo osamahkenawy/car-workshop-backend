@@ -114,24 +114,24 @@ publicCareersRouter.post('/careers/apply', upload.single('resume'), async (req, 
         to: email,
         subject: `Application Received — ${opening.title}`,
         html: buildEmailTemplate({
-          logoUrl: `${process.env.BACKEND_URL || 'https://workshop.traseallo.com'}/uploads/logos/email/traseallo-logo.png`,
-          logoAlt: 'Traseallo',
+          logoUrl: `${process.env.BACKEND_URL || 'https://workshop.pioneercarservice.com'}/uploads/logos/email/pioneer-logo.png`,
+          logoAlt: 'Pioneer',
           accentColor: '#f97316',
           title: 'Application Received!',
           bodyHtml: `
             <p>Hi <strong>${full_name}</strong>,</p>
             <p>Thank you for applying for the <strong>${opening.title}</strong> position in our <strong>${opening.department}</strong> team.</p>
             <p>We've received your application and our team will review it shortly. If your profile matches our requirements, we'll reach out to schedule next steps.</p>
-            <p>In the meantime, feel free to explore our platform at <a href="https://traseallo.com" style="color:#f97316;text-decoration:none;font-weight:600;">traseallo.com</a>.</p>
+            <p>In the meantime, feel free to explore our platform at <a href="https://pioneercarservice.com" style="color:#f97316;text-decoration:none;font-weight:600;">pioneercarservice.com</a>.</p>
             <br/>
             <p style="font-size:12px;color:#9ca3af;">Follow us:</p>
             <p style="font-size:13px;">
               <a href="https://www.facebook.com/profile.php?id=61582271193231" style="color:#f97316;text-decoration:none;margin-right:12px;">Facebook</a>
-              <a href="https://www.instagram.com/traseallo/" style="color:#f97316;text-decoration:none;margin-right:12px;">Instagram</a>
+              <a href="https://www.instagram.com/pioneer/" style="color:#f97316;text-decoration:none;margin-right:12px;">Instagram</a>
               <a href="https://www.linkedin.com/company/110608503/" style="color:#f97316;text-decoration:none;">LinkedIn</a>
             </p>
           `,
-          footerName: 'Trasealla Solutions',
+          footerName: 'Pioneer Solutions',
           isSystem: true,
         }),
       });
@@ -143,11 +143,11 @@ publicCareersRouter.post('/careers/apply', upload.single('resume'), async (req, 
     try {
       const opening = openings[0];
       await sendEmail({
-        to: 'hr@traseallo.com',
+        to: 'hr@pioneercarservice.com',
         subject: `New Application: ${opening.title} — ${full_name}`,
         html: buildEmailTemplate({
-          logoUrl: `${process.env.BACKEND_URL || 'https://workshop.traseallo.com'}/uploads/logos/email/traseallo-logo.png`,
-          logoAlt: 'Traseallo',
+          logoUrl: `${process.env.BACKEND_URL || 'https://workshop.pioneercarservice.com'}/uploads/logos/email/pioneer-logo.png`,
+          logoAlt: 'Pioneer',
           accentColor: '#f97316',
           title: 'New Job Application',
           bodyHtml: `
@@ -158,9 +158,9 @@ publicCareersRouter.post('/careers/apply', upload.single('resume'), async (req, 
               <tr><td style="padding:8px;font-weight:bold;">Email:</td><td style="padding:8px;">${email}</td></tr>
               <tr><td style="padding:8px;font-weight:bold;">Phone:</td><td style="padding:8px;">${phone || '—'}</td></tr>
             </table>
-            <p>Log in to the <a href="https://app.traseallo.com/super-admin/vacancies" style="color:#f97316;text-decoration:none;font-weight:600;">Super Admin panel</a> to review.</p>
+            <p>Log in to the <a href="https://app.pioneercarservice.com/super-admin/vacancies" style="color:#f97316;text-decoration:none;font-weight:600;">Super Admin panel</a> to review.</p>
           `,
-          footerName: 'Trasealla Solutions',
+          footerName: 'Pioneer Solutions',
           isSystem: true,
         }),
       });

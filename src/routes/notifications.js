@@ -246,7 +246,7 @@ router.post('/email-test', async (req, res) => {
     }
     const result = await sendNotificationEmail({
       to,
-      subject: subject || 'Test Email from Trasealla Solutions',
+      subject: subject || 'Test Email from Pioneer Solutions',
       title: subject || 'Test Notification',
       body: `<p>${message}</p>`,
       tenantId: req.workshopId,
@@ -336,7 +336,7 @@ router.post('/push/test', async (req, res) => {
     const { title, body } = req.body;
     const result = await sendPushToUser(req.user.id, {
       title: title || 'Test Push',
-      body:  body  || 'This is a test push notification from Trasealla Solutions.',
+      body:  body  || 'This is a test push notification from Pioneer Solutions.',
       url: '/notifications',
     });
     return res.json({ success: result.success, sent: result.sent, failed: result.failed });

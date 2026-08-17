@@ -18,8 +18,8 @@ import { sendEmail, buildEmailTemplate, getWorkshopBranding } from './email.js';
 let cronJob = null;
 
 // Super-admin contact for billing-issue digests & alerts.
-// Override via env: SUPER_ADMIN_EMAIL=ops@traseallo.com
-const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'info@traseallo.com';
+// Override via env: SUPER_ADMIN_EMAIL=ops@pioneercarservice.com
+const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'info@pioneercarservice.com';
 // Hard cut-off: after this many days past_due, suspend the workshop.
 const PAST_DUE_SUSPEND_AFTER_DAYS = Number(process.env.PAST_DUE_SUSPEND_AFTER_DAYS || 14);
 
@@ -111,8 +111,8 @@ export async function enforceTrialExpiry() {
                   <p>Your trial period expired ${daysOverdue} days ago, and your account has been suspended.</p>
                   <p>All API access has been disabled. <strong>Your data is safe and will be preserved</strong> — we never delete workshop data.</p>
                   <p>To restore access, please subscribe to a plan:</p>
-                  <a href="https://traseallo.com/pricing" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Plans & Subscribe</a>
-                  <p style="margin-top:20px;color:#6b7280;">If you have any questions, contact our support team at info@traseallo.com</p>
+                  <a href="https://pioneercarservice.com/pricing" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Plans & Subscribe</a>
+                  <p style="margin-top:20px;color:#6b7280;">If you have any questions, contact our support team at info@pioneercarservice.com</p>
                 `);
                 await sendEmail({ to: row.email, subject: `⚠️ Account Suspended — ${row.name}`, html });
               } catch (e) { console.error(`[TrialEnforcer] Suspension email error:`, e.message); }
@@ -142,7 +142,7 @@ export async function enforceTrialExpiry() {
                 ${graceDaysLeft > 0 ? `<p>You have <strong>${graceDaysLeft} day(s)</strong> before your account is fully suspended.</p>` : ''}
                 <p><strong>Your data is safe</strong> — we'll never delete your workshop data.</p>
                 <p>Subscribe now to restore full access:</p>
-                <a href="https://traseallo.com/pricing" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Upgrade Now</a>
+                <a href="https://pioneercarservice.com/pricing" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Upgrade Now</a>
               `);
               await sendEmail({ to: row.email, subject: `🚫 Trial Ended — Upgrade to Continue`, html });
             } catch (e) { console.error(`[TrialEnforcer] Expiry email error:`, e.message); }
@@ -161,7 +161,7 @@ export async function enforceTrialExpiry() {
                 <p>Hi <strong>${row.name}</strong>,</p>
                 <p>Your trial expired ${daysOverdue} days ago. ${graceDaysLeft > 0 ? `Your account will be fully suspended in <strong>${graceDaysLeft} day(s)</strong>.` : 'Your account will be suspended today.'}</p>
                 <p>Subscribe to keep your data accessible:</p>
-                <a href="https://traseallo.com/pricing" style="display:inline-block;padding:12px 24px;background:#dc2626;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Subscribe Now — Urgent</a>
+                <a href="https://pioneercarservice.com/pricing" style="display:inline-block;padding:12px 24px;background:#dc2626;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Subscribe Now — Urgent</a>
               `);
               await sendEmail({ to: row.email, subject: `🔴 ${graceDaysLeft > 0 ? `${graceDaysLeft} day(s) left` : 'Last chance'} — Subscribe to avoid suspension`, html });
             } catch (e) { console.error(`[TrialEnforcer] Grace email error:`, e.message); }
@@ -182,7 +182,7 @@ export async function enforceTrialExpiry() {
                 <p>Hi <strong>${row.name}</strong>,</p>
                 <p>Your free trial ${daysRemaining === 1 ? 'expires <strong>tomorrow</strong>' : `expires in <strong>${daysRemaining} day(s)</strong>`}.</p>
                 <p>Don't lose access — upgrade now to keep all your data and settings:</p>
-                <a href="https://traseallo.com/pricing" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Choose a Plan</a>
+                <a href="https://pioneercarservice.com/pricing" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Choose a Plan</a>
                 <p style="margin-top:20px;color:#6b7280;">If you have any questions, we're here to help.</p>
               `);
               await sendEmail({ to: row.email, subject: `🔔 Trial expires in ${daysRemaining} day(s) — ${row.name}`, html });
@@ -275,8 +275,8 @@ async function checkSubscriptionRenewals() {
             <div><span style="color:#6b7280;">Amount:</span> <strong style="color:#f97316;">${sub.currency || 'AED'} ${Number(amount).toFixed(2)}</strong></div>
           </div>
           <p>Your payment method will be charged automatically. To update payment or change plans:</p>
-          <a href="https://dispatch.traseallo.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Manage Subscription</a>
-          <p style="margin-top:20px;color:#6b7280;">Questions? Contact support@traseallo.com</p>
+          <a href="https://dispatch.pioneercarservice.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Manage Subscription</a>
+          <p style="margin-top:20px;color:#6b7280;">Questions? Contact support@pioneercarservice.com</p>
         `);
         await sendEmail({
           to: sub.workshop_email,
@@ -419,8 +419,8 @@ export async function enforcePastDueSubscriptions() {
                 <p>Hi <strong>${row.workshop_name}</strong>,</p>
                 <p>We were unable to charge your payment method for <strong>${daysPastDue} consecutive days</strong>. Your account is now suspended.</p>
                 <p>Your data is safe. To restore service, please update your payment method:</p>
-                <a href="https://dispatch.traseallo.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#dc2626;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Update Payment Method</a>
-                <p style="margin-top:20px;color:#6b7280;">Need help? Contact us at info@traseallo.com</p>
+                <a href="https://dispatch.pioneercarservice.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#dc2626;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Update Payment Method</a>
+                <p style="margin-top:20px;color:#6b7280;">Need help? Contact us at info@pioneercarservice.com</p>
               `);
               await sendEmail({ to: row.workshop_email, subject: `🚫 Account Suspended — Payment Failed (${row.workshop_name})`, html });
             } catch (e) { console.error('[PastDueEnforcer] Suspend email error:', e.message); }
@@ -442,9 +442,9 @@ export async function enforcePastDueSubscriptions() {
               <p>This is day <strong>${daysPastDue}</strong> past due.
               Your account will be <strong>suspended in ${daysLeft} day(s)</strong> if payment is not received.</p>
               <p>Please update your payment method or retry the charge:</p>
-              <a href="https://dispatch.traseallo.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Update Payment Method</a>
+              <a href="https://dispatch.pioneercarservice.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Update Payment Method</a>
               <p style="margin-top:20px;color:#6b7280;">If you've already updated your card, you can ignore this message — Stripe will retry automatically.</p>
-              <p style="color:#6b7280;">Questions? Contact us at info@traseallo.com</p>
+              <p style="color:#6b7280;">Questions? Contact us at info@pioneercarservice.com</p>
             `);
             await sendEmail({
               to: row.workshop_email,
@@ -474,7 +474,7 @@ export async function enforcePastDueSubscriptions() {
 }
 
 /**
- * Daily digest email to the super admin (info@traseallo.com by default).
+ * Daily digest email to the super admin (info@pioneercarservice.com by default).
  * Lists every workshop currently in a billing-issue state:
  *  - past_due (payment failed)
  *  - trial_expired
@@ -556,7 +556,7 @@ export async function notifySuperAdminDailyDigest({ pastDueSummary } = {}) {
 
     await sendEmail({
       to: SUPER_ADMIN_EMAIL,
-      subject: `[Traseallo Billing] Daily digest — ${total} workshop(s) need attention`,
+      subject: `[Pioneer Billing] Daily digest — ${total} workshop(s) need attention`,
       html
     });
     console.log(`[SuperAdminDigest] Sent daily digest to ${SUPER_ADMIN_EMAIL} — ${total} workshops flagged`);
@@ -589,7 +589,7 @@ export async function notifySuperAdminPaymentFailed({ tenantId, tenantName, tena
     `);
     await sendEmail({
       to: SUPER_ADMIN_EMAIL,
-      subject: `[Traseallo Billing] Payment failed — ${tenantName || tenantId}`,
+      subject: `[Pioneer Billing] Payment failed — ${tenantName || tenantId}`,
       html
     });
     console.log(`[SuperAdminAlert] Sent payment-failed alert to ${SUPER_ADMIN_EMAIL} for workshop ${tenantId}`);

@@ -160,7 +160,7 @@ export async function generateServiceJobSheetPDF(res, { orders, tenant, template
   const WHITE     = '#ffffff';
   const CASH_COLOR = template.cod_badge_color || '#dc2626';
 
-  const baseUrl     = process.env.BACKEND_URL || process.env.BASE_URL || (process.env.NODE_ENV === 'production' ? 'https://delivery.traseallo.com' : `http://localhost:${process.env.PORT || 4001}`);
+  const baseUrl     = process.env.BACKEND_URL || process.env.BASE_URL || (process.env.NODE_ENV === 'production' ? 'https://delivery.pioneercarservice.com' : `http://localhost:${process.env.PORT || 4001}`);
   const frontendUrl = process.env.FRONTEND_URL || baseUrl.replace(':4001', ':5173');
 
   // ── Helpers ─────────────────────────────────────────────────
@@ -190,7 +190,7 @@ export async function generateServiceJobSheetPDF(res, { orders, tenant, template
       headerTextX = M + 36;
     }
     doc.fillColor(INK).fontSize(7).font(FB)
-       .text(ar(tenant?.name || 'Traseallo'), headerTextX, y + 2);
+       .text(ar(tenant?.name || 'Pioneer'), headerTextX, y + 2);
 
     // Work order number + date on right
     const createdDate = order.created_at

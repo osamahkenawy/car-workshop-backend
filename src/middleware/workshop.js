@@ -20,7 +20,7 @@ export const workshopMiddleware = async (req, res, next) => {
       workshopId = req.user.workshop_id;
     }
 
-    // 2. From subdomain (e.g., company.crm.traseallo.com)
+    // 2. From subdomain (e.g., company.crm.pioneercarservice.com)
     if (!workshopId) {
       const host = req.get('host');
       const subdomain = extractSubdomain(host);
@@ -177,7 +177,7 @@ function extractSubdomain(host) {
   // For localhost, return null
   if (host.includes('localhost')) return null;
 
-  // For domains like company.crm.traseallo.com, return 'company'
+  // For domains like company.crm.pioneercarservice.com, return 'company'
   if (parts.length >= 3) {
     return parts[0];
   }

@@ -172,7 +172,7 @@ function trackingUrl(token) {
   let base = config.frontendUrl || 'http://localhost:5173';
   // Production safety fallback — never send localhost links in prod emails
   if (process.env.NODE_ENV === 'production' && base.includes('localhost')) {
-    base = 'https://delivery.traseallo.com';
+    base = 'https://delivery.pioneercarservice.com';
   }
   return `${base}/track/${token}`;
 }
@@ -632,7 +632,7 @@ export async function sendCustomNotification({ channels = [], phone, email, mess
     try {
       const { sendNotificationEmail } = await import('./email.js');
       const r = await sendNotificationEmail({
-        to: email, subject: subject || 'Notification from Traseallo',
+        to: email, subject: subject || 'Notification from Pioneer',
         title: subject || 'Notification',
         body: `<p>${message}</p>`,
         tenantId: workshopId,

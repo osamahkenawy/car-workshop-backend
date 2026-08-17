@@ -723,16 +723,16 @@ router.post('/workshops/:id/send-payment-reminder', verifySuperAdmin, async (req
     const html = buildEmailTemplate(branding, `
       <h2 style="color:#dc2626;">Action Required: Update Your Payment</h2>
       <p>Hi <strong>${workshop.name}</strong>,</p>
-      <p>This is a reminder from the Traseallo team — your ${workshop.sub_status === 'past_due' ? 'subscription payment has failed' : 'subscription needs attention'}.</p>
+      <p>This is a reminder from the Pioneer team — your ${workshop.sub_status === 'past_due' ? 'subscription payment has failed' : 'subscription needs attention'}.</p>
       ${workshop.plan ? `<p><strong>Plan:</strong> ${planLabel} (${periodLabel})${amount ? ` — <strong>AED ${Number(amount).toFixed(2)}</strong>` : ''}</p>` : ''}
       ${daysPastDue > 0 ? `<p><strong>Days past due:</strong> ${daysPastDue}</p>` : ''}
       <p>Please update your payment method to keep your account active:</p>
-      <a href="https://dispatch.traseallo.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Update Payment Method</a>
-      <p style="margin-top:20px;color:#6b7280;">Need help? Contact us at info@traseallo.com</p>
+      <a href="https://dispatch.pioneercarservice.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Update Payment Method</a>
+      <p style="margin-top:20px;color:#6b7280;">Need help? Contact us at info@pioneercarservice.com</p>
     `);
     await sendEmail({
       to: workshop.email,
-      subject: `🔴 Action Required — Update your Traseallo payment (${workshop.name})`,
+      subject: `🔴 Action Required — Update your Pioneer payment (${workshop.name})`,
       html
     });
     console.log(`[SuperAdmin] Sent manual payment reminder to workshop ${workshopId} (${workshop.email})`);
@@ -1040,7 +1040,7 @@ router.post('/workshops/:id/send-welcome-email', verifySuperAdmin, async (req, r
     const trialEnd = workshop.trial_ends_at ? new Date(workshop.trial_ends_at) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const trialDays = Math.max(1, Math.ceil((trialEnd - new Date()) / (1000 * 60 * 60 * 24)));
     const trialEndFormatted = trialEnd.toLocaleDateString('en-AE', { year: 'numeric', month: 'long', day: 'numeric' });
-    const frontendUrl = process.env.FRONTEND_URL || config.frontendUrl || 'https://dispatch.traseallo.com';
+    const frontendUrl = process.env.FRONTEND_URL || config.frontendUrl || 'https://dispatch.pioneercarservice.com';
     const loginUrl = `${frontendUrl}/login`;
 
     const cidLogo = getLogoCidAttachment();
@@ -1057,7 +1057,7 @@ router.post('/workshops/:id/send-welcome-email', verifySuperAdmin, async (req, r
               <tr>
                 <td style="background:#ffffff;border-radius:12px;border:1px solid #e2e8f0;
                            box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:14px 28px;text-align:center;">
-                  <img src="${cidLogo.src}" alt="Traseallo" height="44"
+                  <img src="${cidLogo.src}" alt="Pioneer" height="44"
                        style="display:block;height:44px;width:auto;max-width:220px;" />
                 </td>
               </tr>
@@ -1073,7 +1073,7 @@ router.post('/workshops/:id/send-welcome-email', verifySuperAdmin, async (req, r
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td style="padding:40px 40px 32px;">
-                  <h1 style="margin:0 0 4px;font-size:24px;font-weight:700;color:#111827;">Welcome to Traseallo! &#128640;</h1>
+                  <h1 style="margin:0 0 4px;font-size:24px;font-weight:700;color:#111827;">Welcome to Pioneer! &#128640;</h1>
                   <p style="margin:0 0 24px;font-size:15px;color:#6b7280;">Your ${trialDays}-day free trial has started</p>
 
                   <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:20px;margin-bottom:24px;">
@@ -1109,7 +1109,7 @@ router.post('/workshops/:id/send-welcome-email', verifySuperAdmin, async (req, r
                   </table>
 
                   <p style="margin:24px 0 0;font-size:13px;color:#6b7280;text-align:center;">
-                    Need help? Contact us at <a href="mailto:info@trasealla.com" style="color:#f97316;">info@trasealla.com</a>
+                    Need help? Contact us at <a href="mailto:info@pioneercarservice.com" style="color:#f97316;">info@pioneercarservice.com</a>
                     or WhatsApp <a href="https://wa.me/971503920037" style="color:#f97316;">+971 50 392 0037</a>
                   </p>
                 </td>
@@ -1119,7 +1119,7 @@ router.post('/workshops/:id/send-welcome-email', verifySuperAdmin, async (req, r
               <tr>
                 <td style="padding:20px 40px;text-align:center;">
                   <p style="margin:0;font-size:12px;color:#9ca3af;">
-                    ${new Date().getFullYear()} &copy; Trasealla Solutions. All rights reserved.
+                    ${new Date().getFullYear()} &copy; Pioneer Solutions. All rights reserved.
                   </p>
                 </td>
               </tr>
@@ -1134,9 +1134,9 @@ router.post('/workshops/:id/send-welcome-email', verifySuperAdmin, async (req, r
 
     const result = await sendEmail({
       to: owner.email,
-      subject: `Welcome to Traseallo — Your ${trialDays}-Day Free Trial Has Started`,
+      subject: `Welcome to Pioneer — Your ${trialDays}-Day Free Trial Has Started`,
       html,
-      fromName: 'Traseallo',
+      fromName: 'Pioneer',
       attachments: [cidLogo.attachment],
     });
 
@@ -1249,8 +1249,8 @@ router.post('/workshops/:id/users', verifySuperAdmin, async (req, res) => {
         current_plan: currentPlan,
         message: `User limit reached for ${workshop.name} (${currentUsers}/${maxUsers}). The workshop needs to upgrade their plan or you need to increase max_users for this workshop.`,
         support: {
-          email: 'support@traseallo.com',
-          info_email: 'info@trasealla.com',
+          email: 'support@pioneercarservice.com',
+          info_email: 'info@pioneercarservice.com',
           whatsapp: '+971503920037',
         }
       });
@@ -1521,7 +1521,7 @@ router.post('/workshops', verifySuperAdmin, async (req, res) => {
         const loginUrl = config.frontendUrl + '/login';
         const bodyHtml = `
           <p>Hi <strong>${name} Admin</strong>,</p>
-          <p>Your workshop <strong>${name}</strong> has been created on <strong>Trasealla Solutions</strong>. You can now log in and start managing your workshop operations.</p>
+          <p>Your workshop <strong>${name}</strong> has been created on <strong>Pioneer Solutions</strong>. You can now log in and start managing your workshop operations.</p>
           <table cellpadding="0" cellspacing="0" style="margin:16px 0 20px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;width:100%;">
             <tr style="background:#f8fafc;">
               <td style="padding:10px 16px;font-weight:600;color:#475569;font-size:13px;border-bottom:1px solid #e2e8f0;">Workshop</td>
@@ -1544,8 +1544,8 @@ router.post('/workshops', verifySuperAdmin, async (req, res) => {
         `;
         sendNotificationEmail({
           to: email,
-          subject: `Welcome to Traseallo — Your Workshop "${name}" is Ready!`,
-          title: 'Welcome to Trasealla Solutions!',
+          subject: `Welcome to Pioneer — Your Workshop "${name}" is Ready!`,
+          title: 'Welcome to Pioneer Solutions!',
           body: bodyHtml,
           ctaText: 'Login Now',
           ctaUrl: loginUrl,
@@ -1721,9 +1721,9 @@ router.get('/settings', verifySuperAdmin, async (req, res) => {
 
     // Return settings grouped by category, with defaults
     const defaults = {
-      platform_name: 'Trasealla Solutions',
-      platform_email: 'info@traseallo.com',
-      support_email: 'support@traseallo.com',
+      platform_name: 'Pioneer Solutions',
+      platform_email: 'info@pioneercarservice.com',
+      support_email: 'support@pioneercarservice.com',
       default_currency: 'AED',
       default_language: 'en',
       max_tenants: '100',
@@ -1733,7 +1733,7 @@ router.get('/settings', verifySuperAdmin, async (req, res) => {
       smtp_host: '',
       smtp_port: '587',
       smtp_user: '',
-      smtp_from: 'noreply@traseallo.com',
+      smtp_from: 'noreply@pioneercarservice.com',
     };
 
     const result = { ...defaults };

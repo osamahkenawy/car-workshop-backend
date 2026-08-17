@@ -569,7 +569,7 @@ router.post('/:token/send-sms', authMiddleware, async (req, res) => {
     if (!order) return res.status(404).json({ success: false, message: 'Work order not found' });
     if (!order.customer_phone) return res.status(400).json({ success: false, message: 'No customer phone on file' });
 
-    const baseUrl = process.env.FRONTEND_URL || process.env.BASE_URL || 'https://app.traseallo.com';
+    const baseUrl = process.env.FRONTEND_URL || process.env.BASE_URL || 'https://app.pioneercarservice.com';
     const link = `${baseUrl}/service-status/${token}`;
     const message = interpolate(
       'Hi {customer_name}, track your vehicle service status here: {link}',

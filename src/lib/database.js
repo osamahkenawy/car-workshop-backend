@@ -624,13 +624,13 @@ async function runMultiTenantMigrations() {
 
 async function createDefaultWorkshopAndAdmin() {
   // Ensure a default workshop exists in the workshops table.
-  // JUDGMENT CALL: the original seeded a platform-owner tenant named "Traseallo"
-  // (slug 'traseallo'). For the car-workshop domain we keep the same platform-owner
-  // pattern but rebrand it as a workshop named "Traseallo Motors" (slug 'traseallo-motors')
+  // JUDGMENT CALL: the original seeded a platform-owner tenant named "Pioneer"
+  // (slug 'pioneer'). For the car-workshop domain we keep the same platform-owner
+  // pattern but rebrand it as a workshop named "Pioneer Motors" (slug 'pioneer-motors')
   // so the seed still reads naturally as a car workshop business rather than a generic
   // "Demo Workshop" placeholder. Change this to your actual brand name if needed.
   // Car-workshop users/admins are managed via the `users` table (see SQL migration).
-  const [workshopExists] = await pool.execute("SELECT id FROM workshops WHERE slug = 'traseallo-motors'");
+  const [workshopExists] = await pool.execute("SELECT id FROM workshops WHERE slug = 'pioneer-motors'");
 
   if (workshopExists.length === 0) {
     const trialEnds = new Date();
@@ -639,17 +639,17 @@ async function createDefaultWorkshopAndAdmin() {
     const [workshopResult] = await pool.execute(
       `INSERT INTO workshops (name, slug, subdomain, email, status, trial_ends_at, settings) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
-        'Traseallo Motors',
-        'traseallo-motors',
-        'traseallo-motors',
-        'info@traseallo.com',
+        'Pioneer Motors',
+        'pioneer-motors',
+        'pioneer-motors',
+        'info@pioneercarservice.com',
         'active',
         trialEnds.toISOString().slice(0, 19).replace('T', ' '),
         JSON.stringify({ isPlatformOwner: true }),
       ]
     );
     const workshopId = workshopResult.insertId;
-    console.log('Default workshop created: Traseallo Motors (id=' + workshopId + ')');
+    console.log('Default workshop created: Pioneer Motors (id=' + workshopId + ')');
 
     await execute(
       `INSERT INTO subscriptions (workshop_id, plan, status, max_users, features) VALUES (?, ?, ?, ?, ?)`,

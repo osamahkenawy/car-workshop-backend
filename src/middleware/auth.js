@@ -110,7 +110,7 @@ export function superAdminOnly(req, res, next) {
 
 /**
  * Platform owner only middleware
- * Only allows platform owners (Traseallo staff)
+ * Only allows platform owners (Pioneer staff)
  */
 export function platformOwnerOnly(req, res, next) {
   if (!req.user?.permissions?.platform_owner) {

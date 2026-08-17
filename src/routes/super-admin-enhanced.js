@@ -186,13 +186,13 @@ async function ensureTables() {
       {
         name: 'Welcome Email',
         slug: 'welcome',
-        subject: 'Welcome to Traseallo — Your account is ready!',
-        body: `<h2>Welcome to Traseallo, {{workshop_name}}!</h2>
+        subject: 'Welcome to Pioneer — Your account is ready!',
+        body: `<h2>Welcome to Pioneer, {{workshop_name}}!</h2>
 <p>Your workshop management platform is ready.</p>
 <p><strong>Login URL:</strong> {{login_url}}</p>
 <p><strong>Username:</strong> {{username}}</p>
 <p><strong>Password:</strong> {{password}}</p>
-<p>Best regards,<br>Traseallo Team</p>`,
+<p>Best regards,<br>Pioneer Team</p>`,
         variables: JSON.stringify(['workshop_name', 'login_url', 'username', 'password']),
         category: 'welcome'
       },
@@ -247,7 +247,7 @@ async function ensureTables() {
         subject: '{{title}}',
         body: `<h2>{{title}}</h2>
 <p>{{message}}</p>
-<p>— Traseallo Team</p>`,
+<p>— Pioneer Team</p>`,
         variables: JSON.stringify(['title', 'message']),
         category: 'notification'
       }
@@ -644,9 +644,9 @@ router.post('/announcements', verifySuperAdmin, async (req, res) => {
         try {
           await sendNotificationEmail({
             to: t.email,
-            subject: `[Traseallo] ${title}`,
+            subject: `[Pioneer] ${title}`,
             title: title,
-            body: `<p>${message}</p><p>— Traseallo Team</p>`,
+            body: `<p>${message}</p><p>— Pioneer Team</p>`,
           });
         } catch (_) {}
       }
@@ -817,11 +817,11 @@ router.get('/system-health', verifySuperAdmin, async (req, res) => {
           SUM(TABLE_ROWS) as total_rows
         FROM information_schema.tables
         WHERE table_schema = ?
-      `, [config.db?.database || 'traseallo_workshop']);
+      `, [config.db?.database || 'pioneer_workshop']);
 
       const tableCount = await query(`
         SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = ?
-      `, [config.db?.database || 'traseallo_workshop']);
+      `, [config.db?.database || 'pioneer_workshop']);
 
       const processlist = await query('SHOW PROCESSLIST');
 
@@ -884,7 +884,7 @@ router.get('/system-health', verifySuperAdmin, async (req, res) => {
 // Database table sizes
 router.get('/system-health/tables', verifySuperAdmin, async (req, res) => {
   try {
-    const dbName = config.db?.database || config.database?.name || process.env.DB_NAME || 'traseallo_workshop';
+    const dbName = config.db?.database || config.database?.name || process.env.DB_NAME || 'pioneer_workshop';
     const tables = await query(
       'SELECT TABLE_NAME as name, TABLE_ROWS as `rows`, ROUND(data_length / 1024 / 1024, 2) as data_mb, ROUND(index_length / 1024 / 1024, 2) as index_mb, ROUND((data_length + index_length) / 1024 / 1024, 2) as total_mb FROM information_schema.tables WHERE table_schema = ? ORDER BY (data_length + index_length) DESC',
       [dbName]
@@ -1415,12 +1415,12 @@ router.post('/onboard-tenant', verifySuperAdmin, async (req, res) => {
     // 5. Send welcome email
     if (send_welcome_email && (admin_email || email)) {
       try {
-        const loginUrl = `https://dispatch.traseallo.com/login`;
+        const loginUrl = `https://dispatch.pioneercarservice.com/login`;
         const recipient = admin_email || email;
         await sendNotificationEmail({
           to: recipient,
-          subject: 'Welcome to Traseallo — Your Workshop Platform is Ready!',
-          title: `🎉 Welcome to Traseallo, ${name}!`,
+          subject: 'Welcome to Pioneer — Your Workshop Platform is Ready!',
+          title: `🎉 Welcome to Pioneer, ${name}!`,
           body: `
             <p>Your workshop management platform has been set up and is ready to use.</p>
             <div style="background:#f8fafc;padding:20px;border-radius:8px;margin:20px 0;">
@@ -1429,7 +1429,7 @@ router.post('/onboard-tenant', verifySuperAdmin, async (req, res) => {
               <p><strong>Password:</strong> ${admin_password}</p>
             </div>
             <p>Plan: <strong>${typeof plan === 'string' ? plan : 'Starter'}</strong></p>
-            <p>If you need help, reply to this email or contact support@traseallo.com</p>`,
+            <p>If you need help, reply to this email or contact support@pioneercarservice.com</p>`,
           ctaText: 'Login Now',
           ctaUrl: loginUrl,
         });

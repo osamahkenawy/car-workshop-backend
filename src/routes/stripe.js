@@ -211,7 +211,7 @@ async function getOrCreateStripePrice(plan, billingCycle, estimatedWorkOrders = 
 
   // Search for an existing active price with matching metadata
   const existingPrices = await stripe.prices.search({
-    query: `active:'true' AND metadata['traseallo_plan']:'${plan}' AND metadata['traseallo_cycle']:'${billingCycle}'`,
+    query: `active:'true' AND metadata['pioneer_plan']:'${plan}' AND metadata['pioneer_cycle']:'${billingCycle}'`,
     limit: 5,
   });
 
@@ -234,16 +234,16 @@ async function getOrCreateStripePrice(plan, billingCycle, estimatedWorkOrders = 
   // Find or create a reusable Product for this plan (avoid duplicates)
   let product;
   const existingProducts = await stripe.products.search({
-    query: `active:'true' AND metadata['traseallo_plan']:'${plan}'`,
+    query: `active:'true' AND metadata['pioneer_plan']:'${plan}'`,
     limit: 1,
   });
   if (existingProducts.data.length > 0) {
     product = existingProducts.data[0];
   } else {
     product = await stripe.products.create({
-      name: `Traseallo ${planName}`,
+      name: `Pioneer ${planName}`,
       description: `${planName} subscription`,
-      metadata: { traseallo_plan: plan },
+      metadata: { pioneer_plan: plan },
     });
   }
 
@@ -252,7 +252,7 @@ async function getOrCreateStripePrice(plan, billingCycle, estimatedWorkOrders = 
     unit_amount: unitAmount,
     currency,
     recurring: { interval },
-    metadata: { traseallo_plan: plan, traseallo_cycle: billingCycle },
+    metadata: { pioneer_plan: plan, pioneer_cycle: billingCycle },
   });
 
   setInPriceCache(cacheKey, price.id);
@@ -537,7 +537,7 @@ router.post('/upgrade-subscription', authMiddleware, async (req, res) => {
     if (isDowngrade) {
       return res.status(400).json({
         success: false,
-        message: 'Downgrading your plan is not available through self-service. Please contact support@traseallo.com to request a plan change.',
+        message: 'Downgrading your plan is not available through self-service. Please contact support@pioneercarservice.com to request a plan change.',
         downgrade_blocked: true,
         current_plan: sub.plan,
         requested_plan: plan,
@@ -846,7 +846,7 @@ async function sendInvoiceEmails(workshopId, plan, billingCycle, planConfig) {
       Below is your invoice for your records.
     </p>
     ${buildInvoiceBoxHtml(invoiceNumber, invoiceDate, workshop.name, [
-      { description: `Traseallo ${planName}`, cycle: cycleLabel, amount: `${workshopCurrency} ${priceAED}` },
+      { description: `Pioneer ${planName}`, cycle: cycleLabel, amount: `${workshopCurrency} ${priceAED}` },
     ], `${workshopCurrency} ${priceAED}`)}
     <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:18px 22px;margin:0 0 24px;">
       <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#166534;">&#10003; Plan Activated: ${planName}</p>
@@ -960,7 +960,7 @@ async function sendPaymentReceiptEmail(workshopId, plan, billingCycle, stripeInv
       Your payment has been processed successfully. Here is your receipt.
     </p>
     ${buildInvoiceBoxHtml(invoiceNumber, invoiceDate, workshop.name, [
-      { description: `Traseallo ${planName} — ${billingReason}`, cycle: cycleLabel, amount: `${currency} ${amountAED}` },
+      { description: `Pioneer ${planName} — ${billingReason}`, cycle: cycleLabel, amount: `${currency} ${amountAED}` },
     ], `${currency} ${amountAED}`)}
     <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:18px 22px;margin:0 0 24px;">
       <p style="margin:0;font-size:14px;font-weight:700;color:#166534;">&#10003; Payment Successful</p>
@@ -1059,7 +1059,7 @@ function buildInvoiceBoxHtml(invoiceNumber, invoiceDate, companyName, lineItems,
 function buildContactLineHtml() {
   return `<p style="margin:0;font-size:13px;color:#94a3b8;text-align:center;">
       If you have any questions about this invoice, contact us at
-      <a href="mailto:info@traseallo.com" style="color:#f97316;">info@traseallo.com</a>
+      <a href="mailto:info@pioneercarservice.com" style="color:#f97316;">info@pioneercarservice.com</a>
       or WhatsApp <a href="https://wa.me/971503920037" style="color:#f97316;">+971 50 392 0037</a>.
     </p>`;
 }
@@ -1215,8 +1215,8 @@ export async function handleStripeEvent(event) {
                 <p>Hi <strong>${workshop.name}</strong>,</p>
                 <p>Your subscription is scheduled to cancel on <strong>${cancelDate}</strong>. You'll continue to have full access until then.</p>
                 <p>Changed your mind? You can reactivate anytime before the cancellation date:</p>
-                <a href="https://dispatch.traseallo.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Reactivate Subscription</a>
-                <p style="margin-top:20px;color:#6b7280;">Your data will be preserved even after cancellation. Questions? Contact support@traseallo.com</p>
+                <a href="https://dispatch.pioneercarservice.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Reactivate Subscription</a>
+                <p style="margin-top:20px;color:#6b7280;">Your data will be preserved even after cancellation. Questions? Contact support@pioneercarservice.com</p>
               `);
               await sendEmail({ to: workshop.email, subject: `Subscription Cancellation Scheduled — ${workshop.name}`, html });
             }
@@ -1290,8 +1290,8 @@ export async function handleStripeEvent(event) {
               <p>Your subscription has been cancelled. Your account access has been restricted.</p>
               <p><strong>Your data is safe</strong> — we never delete workshop data. You can resubscribe at any time to restore full access.</p>
               <p>Ready to come back? Resubscribe in one click:</p>
-              <a href="https://dispatch.traseallo.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Resubscribe Now</a>
-              <p style="margin-top:20px;color:#6b7280;">Questions? Contact support@traseallo.com</p>
+              <a href="https://dispatch.pioneercarservice.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Resubscribe Now</a>
+              <p style="margin-top:20px;color:#6b7280;">Questions? Contact support@pioneercarservice.com</p>
             `);
             await sendEmail({ to: workshop.email, subject: `Subscription Cancelled — ${workshop.name}`, html });
           }
@@ -1345,7 +1345,7 @@ export async function handleStripeEvent(event) {
         );
         console.log(`[Stripe] Payment failed for workshop ${sub.workshop_id} — marked as past_due`);
 
-        // Real-time alert to super admin (info@traseallo.com).
+        // Real-time alert to super admin (info@pioneercarservice.com).
         // The daily cron will continue to send reminders to the customer.
         const amount = invoice.amount_due ? invoice.amount_due / 100
           : (sub.billing_cycle === 'yearly' ? sub.price_yearly : sub.price_monthly);
@@ -1387,8 +1387,8 @@ export async function handleStripeEvent(event) {
             <p>Hi <strong>${sub.workshop_name}</strong>,</p>
             <p>Your free trial will end on <strong>${trialEnd}</strong>. After that, your subscription will be cancelled unless you add a payment method.</p>
             <p>Subscribe now to keep your data, mechanics, and workshop operations running without interruption:</p>
-            <a href="https://dispatch.traseallo.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#f97316;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Choose a Plan</a>
-            <p style="margin-top:20px;color:#6b7280;">Questions? Contact us at support@traseallo.com</p>
+            <a href="https://dispatch.pioneercarservice.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#f97316;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Choose a Plan</a>
+            <p style="margin-top:20px;color:#6b7280;">Questions? Contact us at support@pioneercarservice.com</p>
           `);
           await sendEmail({ to: sub.workshop_email, subject: `Trial Ending Soon — ${sub.workshop_name}`, html });
           console.log(`[Stripe] Sent trial ending reminder to workshop ${sub.workshop_id}`);
@@ -1438,8 +1438,8 @@ export async function handleStripeEvent(event) {
               </div>
             </div>
             <p>Your payment method on file will be charged automatically. If you need to update your payment method or change your plan, visit your settings:</p>
-            <a href="https://dispatch.traseallo.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Manage Subscription</a>
-            <p style="margin-top:20px;color:#6b7280;">If you have questions, contact us at support@traseallo.com</p>
+            <a href="https://dispatch.pioneercarservice.com/settings?tab=subscription" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Manage Subscription</a>
+            <p style="margin-top:20px;color:#6b7280;">If you have questions, contact us at support@pioneercarservice.com</p>
           `);
           await sendEmail({ to: sub.workshop_email, subject: `Subscription Renewal Reminder — ${sub.workshop_name}`, html });
           console.log(`[Stripe] Sent renewal reminder to workshop ${sub.workshop_id} (${sub.workshop_name})`);
@@ -1520,7 +1520,7 @@ router.post('/create-portal-session', authMiddleware, async (req, res) => {
       });
     }
 
-    const frontendUrl = process.env.FRONTEND_URL || 'https://dispatch.traseallo.com';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://dispatch.pioneercarservice.com';
 
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: sub.stripe_customer_id,

@@ -223,7 +223,7 @@ router.post('/start-trial', async (req, res) => {
     } catch { /* trial_requests may not exist — ignore */ }
 
     // ── 5. Send Welcome Email ──
-    const frontendUrl = process.env.FRONTEND_URL || config.frontendUrl || 'https://workshop.traseallo.com';
+    const frontendUrl = process.env.FRONTEND_URL || config.frontendUrl || 'https://workshop.pioneercarservice.com';
     const loginUrl = `${frontendUrl}/login`;
     sendTrialWelcomeEmail({
       to: email,
@@ -239,7 +239,7 @@ router.post('/start-trial', async (req, res) => {
 
     // ── 6. Notify platform team ──
     sendEmail({
-      to: 'info@traseallo.com',
+      to: 'info@pioneercarservice.com',
       subject: `🆕 New Trial Signup — ${baseName}`,
       html: buildEmailTemplate({}, `
         <h2>New Trial Registration</h2>
@@ -276,7 +276,7 @@ async function sendContactConfirmationEmail({ firstName, lastName, email, subjec
 
   // CID-embedded logo (works without external URL)
   const cidLogo = getLogoCidAttachment();
-  const trasealloLogoUrl = cidLogo.src;
+  const pioneerLogoUrl = cidLogo.src;
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -286,14 +286,14 @@ async function sendContactConfirmationEmail({ firstName, lastName, email, subjec
     <tr><td align="center">
       <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
 
-        <!-- Traseallo Logo -->
+        <!-- Pioneer Logo -->
         <tr>
           <td align="center" style="padding:0 0 28px;">
             <table cellpadding="0" cellspacing="0" style="display:inline-table;">
               <tr>
                 <td style="background:#ffffff;border-radius:12px;border:1px solid #e2e8f0;
                            box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:14px 28px;text-align:center;">
-                  <img src="${trasealloLogoUrl}" alt="Traseallo" height="44"
+                  <img src="${pioneerLogoUrl}" alt="Pioneer" height="44"
                        style="display:block;height:44px;width:auto;max-width:220px;" />
                 </td>
               </tr>
@@ -341,8 +341,8 @@ async function sendContactConfirmationEmail({ firstName, lastName, email, subjec
                       <table cellpadding="0" cellspacing="0" style="border-radius:10px;" bgcolor="#1B3A5C">
                         <tr>
                           <td align="center" style="padding:14px 44px;border-radius:10px;" bgcolor="#1B3A5C">
-                            <a href="https://traseallo.com" style="display:inline-block;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;font-family:'Segoe UI',Helvetica,Arial,sans-serif;">
-                              Explore Traseallo &#8594;
+                            <a href="https://pioneercarservice.com" style="display:inline-block;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;font-family:'Segoe UI',Helvetica,Arial,sans-serif;">
+                              Explore Pioneer &#8594;
                             </a>
                           </td>
                         </tr>
@@ -351,7 +351,7 @@ async function sendContactConfirmationEmail({ firstName, lastName, email, subjec
                   </table>
 
                   <p style="margin:24px 0 0;font-size:13px;color:#6b7280;text-align:center;">
-                    Need help? Contact us at <a href="mailto:info@traseallo.com" style="color:#f97316;">info@traseallo.com</a>
+                    Need help? Contact us at <a href="mailto:info@pioneercarservice.com" style="color:#f97316;">info@pioneercarservice.com</a>
                     or WhatsApp <a href="https://wa.me/971503920037" style="color:#f97316;">+971 50 392 0037</a>
                   </p>
                 </td>
@@ -362,7 +362,7 @@ async function sendContactConfirmationEmail({ firstName, lastName, email, subjec
               <tr>
                 <td style="padding:20px 40px;text-align:center;">
                   <p style="margin:0;font-size:12px;color:#9ca3af;">
-                    ${new Date().getFullYear()} &copy; Trasealla Solutions. All rights reserved.
+                    ${new Date().getFullYear()} &copy; Pioneer Solutions. All rights reserved.
                   </p>
                 </td>
               </tr>
@@ -378,9 +378,9 @@ async function sendContactConfirmationEmail({ firstName, lastName, email, subjec
 
   return sendEmail({
     to: email,
-    subject: 'We received your message — traseallo',
+    subject: 'We received your message — pioneer',
     html,
-    fromName: 'traseallo',
+    fromName: 'pioneer',
     attachments: [cidLogo.attachment],
   });
 }
@@ -447,7 +447,7 @@ router.post('/signup', async (req, res) => {
     // 1. Company name
     const existingWorkshopName = await query('SELECT id FROM workshops WHERE LOWER(name) = LOWER(?) LIMIT 1', [trimmedCompanyName]);
     if (existingWorkshopName?.length) {
-      return res.status(409).json({ success: false, field: 'company_name', message: 'This company is already registered in Traseallo.' });
+      return res.status(409).json({ success: false, field: 'company_name', message: 'This company is already registered in Pioneer.' });
     }
 
     // 2. Company email
@@ -547,7 +547,7 @@ router.post('/signup', async (req, res) => {
 
     // ── 7. Notify platform team ──
     sendEmail({
-      to: 'info@traseallo.com',
+      to: 'info@pioneercarservice.com',
       subject: `🆕 New Signup — ${trimmedCompanyName}`,
       html: buildEmailTemplate({}, `
         <h2>New Trial Signup (Self-Service)</h2>
@@ -644,7 +644,7 @@ router.get('/verify-email', async (req, res) => {
       loginUrl: `${frontendUrl}/login`,
     }).catch(err => console.error('[Verify] Welcome email failed:', err.message));
 
-    res.json({ success: true, message: 'Email verified successfully. You can now log in to Traseallo.' });
+    res.json({ success: true, message: 'Email verified successfully. You can now log in to Pioneer.' });
   } catch (err) {
     console.error('[Public API] Email verification error:', err.message);
     res.status(500).json({ success: false, message: 'Verification failed. Please try again.' });
@@ -722,7 +722,7 @@ router.post('/check-availability', async (req, res) => {
 
     if (company_name?.trim()) {
       const existing = await query('SELECT id FROM workshops WHERE LOWER(name) = LOWER(?) LIMIT 1', [company_name.trim()]);
-      if (existing?.length) errors.company_name = 'This company is already registered in Traseallo.';
+      if (existing?.length) errors.company_name = 'This company is already registered in Pioneer.';
     }
 
     if (company_email?.trim()) {
@@ -749,7 +749,7 @@ export default router;
    ═══════════════════════════════════════════ */
 async function sendTrialWelcomeEmail({ to, firstName, companyName, username, password, trialEnd, trialDays, loginUrl, workshopId }) {
   const cidLogo = getLogoCidAttachment();
-  const trasealloLogoUrl = cidLogo.src;
+  const pioneerLogoUrl = cidLogo.src;
   const trialEndFormatted = trialEnd.toLocaleDateString('en-AE', { year: 'numeric', month: 'long', day: 'numeric' });
 
   const html = `<!DOCTYPE html>
@@ -766,7 +766,7 @@ async function sendTrialWelcomeEmail({ to, firstName, companyName, username, pas
               <tr>
                 <td style="background:#ffffff;border-radius:12px;border:1px solid #e2e8f0;
                            box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:14px 28px;text-align:center;">
-                  <img src="${trasealloLogoUrl}" alt="Traseallo" height="44"
+                  <img src="${pioneerLogoUrl}" alt="Pioneer" height="44"
                        style="display:block;height:44px;width:auto;max-width:220px;" />
                 </td>
               </tr>
@@ -783,7 +783,7 @@ async function sendTrialWelcomeEmail({ to, firstName, companyName, username, pas
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td style="padding:40px 40px 32px;">
-                  <h1 style="margin:0 0 4px;font-size:24px;font-weight:700;color:#111827;">Welcome to Traseallo! &#128640;</h1>
+                  <h1 style="margin:0 0 4px;font-size:24px;font-weight:700;color:#111827;">Welcome to Pioneer! &#128640;</h1>
                   <p style="margin:0 0 24px;font-size:15px;color:#6b7280;">Your ${trialDays}-day free trial has started</p>
 
                   <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:20px;margin-bottom:24px;">
@@ -824,7 +824,7 @@ async function sendTrialWelcomeEmail({ to, firstName, companyName, username, pas
                   </table>
 
                   <p style="margin:24px 0 0;font-size:13px;color:#6b7280;text-align:center;">
-                    Need help? Contact us at <a href="mailto:support@traseallo.com" style="color:#f97316;">support@traseallo.com</a>
+                    Need help? Contact us at <a href="mailto:support@pioneercarservice.com" style="color:#f97316;">support@pioneercarservice.com</a>
                     or WhatsApp <a href="https://wa.me/971503920037" style="color:#f97316;">+971 50 392 0037</a>
                   </p>
                 </td>
@@ -834,7 +834,7 @@ async function sendTrialWelcomeEmail({ to, firstName, companyName, username, pas
               <tr>
                 <td style="padding:20px 40px;text-align:center;">
                   <p style="margin:0;font-size:12px;color:#9ca3af;">
-                    ${new Date().getFullYear()} &copy; Trasealla Solutions. All rights reserved.
+                    ${new Date().getFullYear()} &copy; Pioneer Solutions. All rights reserved.
                   </p>
                 </td>
               </tr>
@@ -850,9 +850,9 @@ async function sendTrialWelcomeEmail({ to, firstName, companyName, username, pas
 
   return sendEmail({
     to,
-    subject: `Welcome to Traseallo – Your ${trialDays}-Day Free Trial Has Started`,
+    subject: `Welcome to Pioneer – Your ${trialDays}-Day Free Trial Has Started`,
     html,
-    fromName: 'Traseallo',
+    fromName: 'Pioneer',
     attachments: [cidLogo.attachment],
   });
 }
@@ -862,7 +862,7 @@ async function sendTrialWelcomeEmail({ to, firstName, companyName, username, pas
    ═══════════════════════════════════════════ */
 async function sendVerificationEmail({ to, adminName, companyName, verificationUrl, tokenExpiry }) {
   const cidLogo = getLogoCidAttachment();
-  const trasealloLogoUrl = cidLogo.src;
+  const pioneerLogoUrl = cidLogo.src;
   const expiryFormatted = tokenExpiry.toLocaleDateString('en-AE', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   const html = `<!DOCTYPE html>
@@ -878,7 +878,7 @@ async function sendVerificationEmail({ to, adminName, companyName, verificationU
               <tr>
                 <td style="background:#ffffff;border-radius:12px;border:1px solid #e2e8f0;
                            box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:14px 28px;text-align:center;">
-                  <img src="${trasealloLogoUrl}" alt="Traseallo" height="44"
+                  <img src="${pioneerLogoUrl}" alt="Pioneer" height="44"
                        style="display:block;height:44px;width:auto;max-width:220px;" />
                 </td>
               </tr>
@@ -911,7 +911,7 @@ async function sendVerificationEmail({ to, adminName, companyName, verificationU
                   </div>
 
                   <p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 24px;text-align:center;">
-                    Click the button below to verify your email and start using Traseallo.
+                    Click the button below to verify your email and start using Pioneer.
                   </p>
 
                   <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
@@ -948,7 +948,7 @@ async function sendVerificationEmail({ to, adminName, companyName, verificationU
                   </table>
 
                   <p style="margin:24px 0 0;font-size:13px;color:#6b7280;text-align:center;">
-                    If you did not sign up for Traseallo, you can safely ignore this email.
+                    If you did not sign up for Pioneer, you can safely ignore this email.
                   </p>
                 </td>
               </tr>
@@ -957,7 +957,7 @@ async function sendVerificationEmail({ to, adminName, companyName, verificationU
               <tr>
                 <td style="padding:20px 40px;text-align:center;">
                   <p style="margin:0;font-size:12px;color:#9ca3af;">
-                    ${new Date().getFullYear()} &copy; Trasealla Solutions. All rights reserved.
+                    ${new Date().getFullYear()} &copy; Pioneer Solutions. All rights reserved.
                   </p>
                 </td>
               </tr>
@@ -972,9 +972,9 @@ async function sendVerificationEmail({ to, adminName, companyName, verificationU
 
   return sendEmail({
     to,
-    subject: 'Verify Your Email Address — Traseallo',
+    subject: 'Verify Your Email Address — Pioneer',
     html,
-    fromName: 'Traseallo',
+    fromName: 'Pioneer',
     attachments: [cidLogo.attachment],
   });
 }
@@ -984,7 +984,7 @@ async function sendVerificationEmail({ to, adminName, companyName, verificationU
    ═══════════════════════════════════════════ */
 async function sendSignupWelcomeEmail({ to, adminName, companyName, trialDays, trialEnd, loginUrl }) {
   const cidLogo = getLogoCidAttachment();
-  const trasealloLogoUrl = cidLogo.src;
+  const pioneerLogoUrl = cidLogo.src;
   const trialEndFormatted = trialEnd.toLocaleDateString('en-AE', { year: 'numeric', month: 'long', day: 'numeric' });
 
   const html = `<!DOCTYPE html>
@@ -1000,7 +1000,7 @@ async function sendSignupWelcomeEmail({ to, adminName, companyName, trialDays, t
               <tr>
                 <td style="background:#ffffff;border-radius:12px;border:1px solid #e2e8f0;
                            box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:14px 28px;text-align:center;">
-                  <img src="${trasealloLogoUrl}" alt="Traseallo" height="44"
+                  <img src="${pioneerLogoUrl}" alt="Pioneer" height="44"
                        style="display:block;height:44px;width:auto;max-width:220px;" />
                 </td>
               </tr>
@@ -1016,7 +1016,7 @@ async function sendSignupWelcomeEmail({ to, adminName, companyName, trialDays, t
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td style="padding:40px 40px 32px;">
-                  <h1 style="margin:0 0 4px;font-size:24px;font-weight:700;color:#111827;">Welcome to Traseallo! &#128640;</h1>
+                  <h1 style="margin:0 0 4px;font-size:24px;font-weight:700;color:#111827;">Welcome to Pioneer! &#128640;</h1>
                   <p style="margin:0 0 24px;font-size:15px;color:#6b7280;">Your ${trialDays}-day free trial has started</p>
 
                   <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:20px;margin-bottom:24px;">
@@ -1059,7 +1059,7 @@ async function sendSignupWelcomeEmail({ to, adminName, companyName, trialDays, t
                   </table>
 
                   <p style="margin:24px 0 0;font-size:13px;color:#6b7280;text-align:center;">
-                    Need help? Contact us at <a href="mailto:support@traseallo.com" style="color:#f97316;">support@traseallo.com</a>
+                    Need help? Contact us at <a href="mailto:support@pioneercarservice.com" style="color:#f97316;">support@pioneercarservice.com</a>
                     or WhatsApp <a href="https://wa.me/971503920037" style="color:#f97316;">+971 50 392 0037</a>
                   </p>
                 </td>
@@ -1069,7 +1069,7 @@ async function sendSignupWelcomeEmail({ to, adminName, companyName, trialDays, t
               <tr>
                 <td style="padding:20px 40px;text-align:center;">
                   <p style="margin:0;font-size:12px;color:#9ca3af;">
-                    ${new Date().getFullYear()} &copy; Trasealla Solutions. All rights reserved.
+                    ${new Date().getFullYear()} &copy; Pioneer Solutions. All rights reserved.
                   </p>
                 </td>
               </tr>
@@ -1084,9 +1084,9 @@ async function sendSignupWelcomeEmail({ to, adminName, companyName, trialDays, t
 
   return sendEmail({
     to,
-    subject: `Welcome to Traseallo — Your ${trialDays}-Day Free Trial Has Started`,
+    subject: `Welcome to Pioneer — Your ${trialDays}-Day Free Trial Has Started`,
     html,
-    fromName: 'Traseallo',
+    fromName: 'Pioneer',
     attachments: [cidLogo.attachment],
   });
 }

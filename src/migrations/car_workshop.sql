@@ -3,7 +3,7 @@
 -- Database: car_workshop
 --
 -- Ported/rebranded from a delivery-service platform schema
--- (trasealla_delivery.sql). Entity renames applied throughout:
+-- (pioneer_delivery.sql). Entity renames applied throughout:
 --   tenants        -> workshops           (a workshop branch/location)
 --   drivers        -> mechanics
 --   driver_locations -> mechanic_locations

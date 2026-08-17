@@ -266,7 +266,7 @@ router.post('/:id/test', async (req, res) => {
     const payload = {
       event: 'webhook.test',
       timestamp: new Date().toISOString(),
-      data: { message: 'This is a test ping from Traseallo', endpoint_id: endpoint.id },
+      data: { message: 'This is a test ping from Pioneer', endpoint_id: endpoint.id },
     };
 
     const result = await deliverWebhook({ endpoint, event: 'webhook.test', payload, workshopId: req.workshopId });
@@ -322,10 +322,10 @@ export async function deliverWebhook({ endpoint, event, payload, workshopId, del
 
   const headers = {
     'Content-Type': 'application/json',
-    'X-Traseallo-Event':     event,
-    'X-Traseallo-Signature': `sha256=${sig}`,
-    'X-Traseallo-Timestamp': String(Date.now()),
-    'User-Agent': 'Traseallo-Webhook/1.0',
+    'X-Pioneer-Event':     event,
+    'X-Pioneer-Signature': `sha256=${sig}`,
+    'X-Pioneer-Timestamp': String(Date.now()),
+    'User-Agent': 'Pioneer-Webhook/1.0',
     ...((endpoint.headers && typeof endpoint.headers === 'string'
       ? JSON.parse(endpoint.headers) : (endpoint.headers || {}))),
   };

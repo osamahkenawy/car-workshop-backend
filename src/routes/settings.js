@@ -142,8 +142,8 @@ router.post('/users', async (req, res) => {
           current_plan: currentPlan,
           message: `User limit reached (${currentUsers}/${maxUsers}). Please upgrade your plan or contact support to add more users.`,
           support: {
-            email: 'support@traseallo.com',
-            info_email: 'info@trasealla.com',
+            email: 'support@pioneercarservice.com',
+            info_email: 'info@pioneercarservice.com',
             whatsapp: '+971503920037',
           }
         });

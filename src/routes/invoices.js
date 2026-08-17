@@ -45,7 +45,7 @@ function fetchImageBuffer(url) {
 
 // ── Generate secure public token for invoice QR
 function generatePublicToken(workshopId, invoiceId) {
-  const secret = process.env.JWT_SECRET || 'traseallo_workshop_secret_2026';
+  const secret = process.env.JWT_SECRET || 'pioneer_workshop_secret_2026';
   const hmac = crypto.createHmac('sha256', secret).update(`${workshopId}-${invoiceId}`).digest('hex').slice(0, 16);
   return `${workshopId}-${invoiceId}-${hmac}`;
 }
@@ -108,7 +108,7 @@ export async function generateInvoicePDF(res, { invoice, workshop, customer, ite
 
   if (!logoLoaded) {
     doc.fillColor(PRIMARY).fontSize(26).font('Helvetica-Bold')
-       .text(workshop?.name || 'Traseallo', M, 40);
+       .text(workshop?.name || 'Pioneer', M, 40);
   }
 
   doc.fillColor(ACCENT).fontSize(38).font('Helvetica-Bold')
@@ -156,7 +156,7 @@ export async function generateInvoicePDF(res, { invoice, workshop, customer, ite
     workshop?.phone || ''
   ].filter(Boolean).join('\n');
   doc.fillColor(PRIMARY).fontSize(10).font('Helvetica')
-     .text(workshop?.name || 'Traseallo', 350, billY + 16, { width: RIGHT - 350, align: 'right' })
+     .text(workshop?.name || 'Pioneer', 350, billY + 16, { width: RIGHT - 350, align: 'right' })
      .text(companyAddr, 350, billY + 30, { width: RIGHT - 350, align: 'right', lineGap: 2 });
 
   if (vatNumber) {
@@ -261,7 +261,7 @@ export async function generateInvoicePDF(res, { invoice, workshop, customer, ite
   try {
     const publicToken = generatePublicToken(workshopId, invoice.id);
     const baseUrl = process.env.BACKEND_URL || process.env.BASE_URL
-      || (process.env.NODE_ENV === 'production' ? 'https://api.traseallo.com' : `http://localhost:${process.env.PORT || 4001}`);
+      || (process.env.NODE_ENV === 'production' ? 'https://api.pioneercarservice.com' : `http://localhost:${process.env.PORT || 4001}`);
     const publicUrl = `${baseUrl}/api/invoices/public/${publicToken}/pdf`;
 
     const qrDataUrl = await QRCode.toDataURL(publicUrl, {
@@ -295,7 +295,7 @@ export async function generateInvoicePDF(res, { invoice, workshop, customer, ite
   doc.moveTo(M, H - 50).lineTo(RIGHT, H - 50).strokeColor(GRAY_LINE).lineWidth(0.5).stroke();
   doc.fillColor(GRAY_TEXT).fontSize(8).font('Helvetica')
      .text(
-       `Thank you for your business  •  ${workshop?.email || 'info@traseallo.com'}  •  ${workshop?.phone || ''}`,
+       `Thank you for your business  •  ${workshop?.email || 'info@pioneercarservice.com'}  •  ${workshop?.phone || ''}`,
        M, H - 40, { align: 'center', width: RIGHT - M }
      );
 
