@@ -21,6 +21,234 @@ const workshopQ = (sql, params, req) => query(sql, [...params, req.workshopId]);
 //  WORK ORDERS
 // ════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════
+//  ENQUIRY INTAKE — website / landing-page leads (journey stage 01-02)
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Map the free-text `source` a website sends onto one of the four sourcing
+ * groups from the CX journey map. Anything web-originated is search &
+ * discovery; the raw string is preserved in source_detail either way so the
+ * exact campaign stays reportable.
+ */
+function mapSourceChannel(source) {
+  const s = String(source || '').toLowerCase();
+  if (/referr|friend|word/.test(s))                      return 'owned_repeat';
+  if (/insur|partner|fleet|corporate|dealer|recovery/.test(s)) return 'partner_referred';
+  if (/walk|passing|signage|drive/.test(s))              return 'passing_local';
+  return 'search_discovery'; // website, landing page, google, campaign, social
+}
+
+/** Map the website's service label onto the enquiry_type enum. */
+function mapEnquiryType(service) {
+  const s = String(service || '').toLowerCase();
+  if (/diagnos/.test(s))                       return 'diagnostic';
+  if (/body|paint|dent/.test(s))               return 'bodywork';
+  if (/accident|collision|crash/.test(s))      return 'accident';
+  if (/repair|mechanic|engine|brake|transmis/.test(s)) return 'repair';
+  if (/service|oil|maintenance|tyre|tire|ac\b/.test(s)) return 'service';
+  return 'other';
+}
+
+const isBlank = (v) => v === undefined || v === null || String(v).trim() === '';
+
+/**
+ * POST /api/v1/enquiries
+ *
+ * Accepts an enquiry pushed from a website landing page and files it as a
+ * stage 01-02 enquiry with its source attributed.
+ *
+ * Idempotent on `reference`: pushing the same reference again returns the
+ * enquiry that already exists (200) rather than creating a duplicate, so a
+ * landing page that retries on timeout is safe.
+ *
+ * Requires: enquiries:write
+ */
+router.post('/enquiries', requireApiPermission('enquiries:write'), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { reference, branch, service, customer = {}, vehicle = {}, preferredDate, notes, source } = body;
+
+    // ── Validation ────────────────────────────────────────────
+    const errors = [];
+    if (isBlank(customer.name))  errors.push({ field: 'customer.name',  message: 'Customer name is required' });
+    if (isBlank(customer.phone)) errors.push({ field: 'customer.phone', message: 'Customer phone is required' });
+
+    if (!isBlank(customer.phone) && !/^\+?[\d\s\-()]{7,20}$/.test(String(customer.phone).trim())) {
+      errors.push({ field: 'customer.phone', message: 'Phone number format is invalid' });
+    }
+    if (!isBlank(customer.email) && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(customer.email).trim())) {
+      errors.push({ field: 'customer.email', message: 'Email format is invalid' });
+    }
+    if (!isBlank(preferredDate) && !/^\d{4}-\d{2}-\d{2}$/.test(String(preferredDate).trim())) {
+      errors.push({ field: 'preferredDate', message: 'preferredDate must be YYYY-MM-DD' });
+    }
+    if (!isBlank(vehicle.year) && !/^\d{4}$/.test(String(vehicle.year).trim())) {
+      errors.push({ field: 'vehicle.year', message: 'vehicle.year must be a 4-digit year' });
+    }
+    if (errors.length) {
+      return res.status(422).json({ success: false, message: 'Validation failed', errors });
+    }
+
+    const extRef = isBlank(reference) ? null : String(reference).trim();
+
+    // ── Idempotency: same reference -> return what already exists ──
+    if (extRef) {
+      const [existing] = await query(
+        'SELECT id, enquiry_number, external_reference, status, created_at FROM enquiries WHERE workshop_id = ? AND external_reference = ?',
+        [req.workshopId, extRef]
+      );
+      if (existing) {
+        return res.status(200).json({
+          success: true,
+          duplicate: true,
+          message: 'This reference has already been received; returning the existing enquiry.',
+          data: {
+            id: existing.id,
+            enquiryNumber: existing.enquiry_number,
+            reference: existing.external_reference,
+            status: existing.status,
+            receivedAt: existing.created_at,
+          },
+        });
+      }
+    }
+
+    // ── Build the enquiry ─────────────────────────────────────
+    const d = new Date();
+    const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const enquiryNumber = `ENQ-${stamp}-${Math.floor(Math.random() * 9000) + 1000}`;
+
+    const vehicleDescription = [vehicle.make, vehicle.model, vehicle.year]
+      .filter(v => !isBlank(v)).map(v => String(v).trim()).join(' ') || null;
+
+    // Reuse an existing customer when the phone already matches, so repeat
+    // website leads attach to the record they belong to.
+    const phone = String(customer.phone).trim();
+    const [known] = await query(
+      'SELECT id FROM customers WHERE workshop_id = ? AND phone = ? LIMIT 1',
+      [req.workshopId, phone]
+    );
+
+    const result = await execute(
+      `INSERT INTO enquiries
+         (workshop_id, enquiry_number, external_reference, customer_id,
+          contact_name, contact_phone, contact_email,
+          vehicle_description, vehicle_plate,
+          enquiry_type, description,
+          source_channel, source_detail, contact_method,
+          branch, service_requested, preferred_date,
+          intake_origin, raw_payload, status, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'api', ?, 'new', NULL)`,
+      [
+        req.workshopId, enquiryNumber, extRef, known ? known.id : null,
+        String(customer.name).trim(), phone,
+        isBlank(customer.email) ? null : String(customer.email).trim(),
+        vehicleDescription,
+        isBlank(vehicle.plateNumber) ? null : String(vehicle.plateNumber).trim(),
+        mapEnquiryType(service),
+        isBlank(notes) ? null : String(notes).trim(),
+        mapSourceChannel(source),
+        isBlank(source) ? null : String(source).trim(),
+        'website_form',
+        isBlank(branch) ? null : String(branch).trim(),
+        isBlank(service) ? null : String(service).trim(),
+        isBlank(preferredDate) ? null : String(preferredDate).trim(),
+        JSON.stringify(body),
+      ]
+    );
+
+    const [row] = await query(
+      'SELECT id, enquiry_number, external_reference, status, source_channel, source_detail, enquiry_type, created_at FROM enquiries WHERE id = ?',
+      [result.insertId]
+    );
+
+    return res.status(201).json({
+      success: true,
+      duplicate: false,
+      message: 'Enquiry received',
+      data: {
+        id: row.id,
+        enquiryNumber: row.enquiry_number,
+        reference: row.external_reference,
+        status: row.status,
+        sourceChannel: row.source_channel,
+        source: row.source_detail,
+        enquiryType: row.enquiry_type,
+        linkedCustomerId: known ? known.id : null,
+        receivedAt: row.created_at,
+      },
+    });
+  } catch (err) {
+    // Two simultaneous pushes of one reference: the unique index wins the race,
+    // so resolve to the row that landed rather than failing the caller.
+    if (err && err.code === 'ER_DUP_ENTRY') {
+      const [existing] = await query(
+        'SELECT id, enquiry_number, external_reference, status, created_at FROM enquiries WHERE workshop_id = ? AND external_reference = ?',
+        [req.workshopId, String(req.body?.reference || '').trim()]
+      );
+      if (existing) {
+        return res.status(200).json({
+          success: true, duplicate: true,
+          message: 'This reference has already been received; returning the existing enquiry.',
+          data: {
+            id: existing.id, enquiryNumber: existing.enquiry_number,
+            reference: existing.external_reference, status: existing.status,
+            receivedAt: existing.created_at,
+          },
+        });
+      }
+    }
+    console.error('[api/v1/enquiries POST]', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to record enquiry' });
+  }
+});
+
+/**
+ * GET /api/v1/enquiries/:reference
+ * Let the sending site confirm what we did with a lead it pushed.
+ * Requires: enquiries:read
+ */
+router.get('/enquiries/:reference', requireApiPermission('enquiries:read'), async (req, res) => {
+  try {
+    const [row] = await query(
+      `SELECT e.id, e.enquiry_number, e.external_reference, e.status, e.enquiry_type,
+              e.source_channel, e.source_detail, e.branch, e.service_requested,
+              e.preferred_date, e.contact_name, e.contact_phone, e.created_at,
+              e.converted_work_order_id, wo.work_order_number, wo.status AS work_order_status
+       FROM enquiries e
+       LEFT JOIN work_orders wo ON e.converted_work_order_id = wo.id
+       WHERE e.workshop_id = ? AND e.external_reference = ?`,
+      [req.workshopId, req.params.reference]
+    );
+    if (!row) return res.status(404).json({ success: false, message: 'No enquiry found for that reference' });
+
+    return res.json({
+      success: true,
+      data: {
+        id: row.id,
+        enquiryNumber: row.enquiry_number,
+        reference: row.external_reference,
+        status: row.status,
+        enquiryType: row.enquiry_type,
+        sourceChannel: row.source_channel,
+        source: row.source_detail,
+        branch: row.branch,
+        service: row.service_requested,
+        preferredDate: row.preferred_date,
+        customer: { name: row.contact_name, phone: row.contact_phone },
+        workOrder: row.converted_work_order_id
+          ? { id: row.converted_work_order_id, number: row.work_order_number, status: row.work_order_status }
+          : null,
+        receivedAt: row.created_at,
+      },
+    });
+  } catch (err) {
+    console.error('[api/v1/enquiries/:reference GET]', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to fetch enquiry' });
+  }
+});
+
 /**
  * GET /api/v1/work_orders
  * List work orders with pagination and optional filters.
@@ -348,6 +576,8 @@ router.get('/docs', (req, res) => {
       { method: 'GET',   path: '/service-status/:token',    description: 'Get service status by token',             permissions: ['service_status:read'] },
       { method: 'GET',   path: '/customers',                description: 'List workshop customers',                permissions: ['customers:read'] },
       { method: 'GET',   path: '/webhooks',                 description: 'List webhook endpoints',                  permissions: ['webhooks:manage'] },
+      { method: 'POST',  path: '/enquiries',                description: 'Push a website / landing-page enquiry. Idempotent on `reference`.', permissions: ['enquiries:write'], body: 'reference, branch, service, customer{name*, phone*, email}, vehicle{make, model, year, plateNumber}, preferredDate, notes, source' },
+      { method: 'GET',   path: '/enquiries/:reference',     description: 'Look up a pushed enquiry by its reference', permissions: ['enquiries:read'] },
       { method: 'GET',   path: '/docs',                     description: 'This documentation endpoint',             permissions: [] },
     ],
     rate_limits: { window: '15 minutes', max_requests: 500 },
@@ -355,6 +585,8 @@ router.get('/docs', (req, res) => {
       401: 'Missing or invalid API key',
       403: 'API key revoked, expired, or lacks required permission',
       404: 'Resource not found',
+      409: 'Conflict — reference already used by a different enquiry',
+      422: 'Validation failed',
       429: 'Rate limit exceeded',
     },
   });

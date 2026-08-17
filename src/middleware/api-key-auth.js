@@ -16,10 +16,12 @@ import crypto from 'crypto';
 // ── Permission map ────────────────────────────────────────────
 // Frontend sends 'read', 'write', 'full' but DB stores JSON array
 const PERM_EXPAND = {
-  read:  ['work_orders:read', 'service_status:read'],
-  write: ['work_orders:read', 'work_orders:write', 'service_status:read'],
+  read:  ['work_orders:read', 'service_status:read', 'enquiries:read'],
+  write: ['work_orders:read', 'work_orders:write', 'service_status:read',
+          'enquiries:read', 'enquiries:write'],
   full:  ['work_orders:read', 'work_orders:write', 'service_status:read', 'service_status:write',
-           'customers:read', 'customers:write', 'mechanics:read', 'webhooks:manage'],
+           'customers:read', 'customers:write', 'mechanics:read', 'webhooks:manage',
+           'enquiries:read', 'enquiries:write'],
 };
 
 /**

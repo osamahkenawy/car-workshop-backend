@@ -60,6 +60,7 @@ import userNotificationsRouter from './routes/user-notifications.js';
 import integrationsRouter from './routes/integrations.js';
 import uploadsRouter from './routes/uploads.js';
 import apiV1Router from './routes/api-v1.js';
+import { apiKeyAuth } from './middleware/api-key-auth.js';
 import publicApiRouter from './routes/public-api.js';
 import { publicCareersRouter, adminCareersRouter } from './routes/careers.js';
 import { legalPublicRouter, legalAdminRouter } from './routes/legal-pages.js';
@@ -148,7 +149,10 @@ app.use('/api/integrations', integrationsRouter);
 app.use('/api/uploads', uploadsRouter);
 
 // ── External-facing API ─────────────────────────────────────────────────
-app.use('/api/v1', apiV1Router);
+// apiKeyAuth must run here: /api/v1 was mounted without it, and
+// requireApiPermission() inside the router no-ops when req.isApiKey is falsy,
+// so every v1 route was reachable with no credential at all.
+app.use('/api/v1', apiKeyAuth, apiV1Router);
 app.use('/api/public', publicApiRouter);
 
 // ── Marketing / content pages (each file exposes a public + admin router) ─
