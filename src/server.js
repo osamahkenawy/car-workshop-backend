@@ -62,6 +62,7 @@ import uploadsRouter from './routes/uploads.js';
 import apiV1Router from './routes/api-v1.js';
 import { apiKeyAuth } from './middleware/api-key-auth.js';
 import publicApiRouter from './routes/public-api.js';
+import { publicSurveyRouter, adminSurveyRouter } from './routes/customer-survey.js';
 import { publicCareersRouter, adminCareersRouter } from './routes/careers.js';
 import { legalPublicRouter, legalAdminRouter } from './routes/legal-pages.js';
 import superAdminRouter from './routes/super-admin.js';
@@ -154,6 +155,9 @@ app.use('/api/uploads', uploadsRouter);
 // so every v1 route was reachable with no credential at all.
 app.use('/api/v1', apiKeyAuth, apiV1Router);
 app.use('/api/public', publicApiRouter);
+// Customer feedback survey (CES / NPS / CSAT): public form + dashboard analysis
+app.use('/api/public/survey', publicSurveyRouter);
+app.use('/api/customer-survey', adminSurveyRouter);
 
 // ── Marketing / content pages (each file exposes a public + admin router) ─
 app.use('/api/careers', publicCareersRouter);
