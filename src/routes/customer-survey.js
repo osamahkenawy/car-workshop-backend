@@ -364,6 +364,12 @@ adminSurveyRouter.get('/stats', async (req, res) => {
 
     // Verbatims are the most actionable part of the survey, so detractors
     // come first regardless of recency.
+    // The public / QR link needs the slug: a deployment with more than one
+    // workshop cannot resolve a bare /survey link, so the page must qualify it.
+    const [workshop] = await query(
+      'SELECT slug, name FROM workshops WHERE id = ?', [req.user.workshop_id]
+    );
+
     const verbatims = await query(
       `SELECT r.id, r.nps_score, r.nps_category, r.nps_reason, r.branch,
               r.service_requested, r.contact_name, r.submitted_at
@@ -424,6 +430,9 @@ adminSurveyRouter.get('/stats', async (req, res) => {
         byBranch: byBranch.map(withNps),
         byService: byService.map(withNps),
         verbatims,
+        workshop: workshop
+          ? { slug: workshop.slug, name: workshop.name, surveyPath: `/survey?workshop=${encodeURIComponent(workshop.slug)}` }
+          : null,
       },
     });
   } catch (err) {
