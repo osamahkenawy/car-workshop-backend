@@ -448,9 +448,14 @@ router.get('/financial', authMiddleware, async (req, res) => {
         kpis: {
           total_orders:       parseInt(totals.total_orders) || 0,
           delivered:          parseInt(totals.delivered) || 0,
+          // The Financial tab reads gross_service_fees and cash_collected; only
+          // the delivery-era names were emitted, so both cards showed AED 0.00.
+          // Old names kept as aliases for any other consumer.
+          gross_service_fees:  parseFloat(totals.gross_delivery_fees) || 0,
           gross_delivery_fees: parseFloat(totals.gross_delivery_fees) || 0,
           total_discounts:    parseFloat(totals.total_discounts) || 0,
           net_revenue:        parseFloat(totals.net_revenue) || 0,
+          cash_collected:     parseFloat(totals.cod_collected) || 0,
           cod_collected:      parseFloat(totals.cod_collected) || 0,
           cod_outstanding:    parseFloat(totals.cod_outstanding) || 0,
           cod_settled:        parseFloat(totals.cod_settled) || 0,
