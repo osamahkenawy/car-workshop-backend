@@ -74,7 +74,12 @@ router.get('/', authMiddleware, async (req, res) => {
       failed:        failedWorkOrders.count || 0,
       success_rate:  totalWorkOrders.count > 0 ? ((completedWorkOrders.count / totalWorkOrders.count) * 100).toFixed(1) : 0,
       total_revenue: parseFloat(totalRevenue.total) || 0,
-      cod_collected: parseFloat(cashCollected.total) || 0,
+      // The Reports page and its PDF export both read `cash_collected`; this
+      // object only ever emitted `cod_collected`, so the KPI card showed
+      // AED 0.00 no matter how much cash had been taken. `cod_collected` is
+      // kept as an alias in case anything else still reads the old name.
+      cash_collected: parseFloat(cashCollected.total) || 0,
+      cod_collected:  parseFloat(cashCollected.total) || 0,
     };
 
     // Work order volume by day
@@ -102,10 +107,15 @@ router.get('/', authMiddleware, async (req, res) => {
 
     // Work orders by emirate
     const byEmirate = await query(
-      `SELECT customer_emirate as emirate, COUNT(*) as orders,
-              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as delivered
-       FROM work_orders WHERE workshop_id = ? AND ${dateFilter}
-       GROUP BY customer_emirate ORDER BY orders DESC`,
+      // Emirate lives on the customer, not the work order. The old query read
+      // work_orders.customer_emirate, a column left over from the delivery
+      // platform that does not exist here — it made the whole report 500, so
+      // every tab rendered as "no data" regardless of the date range.
+      `SELECT COALESCE(NULLIF(c.emirate, ''), 'Unspecified') as emirate, COUNT(*) as orders,
+              SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) as delivered
+       FROM work_orders o LEFT JOIN customers c ON o.customer_id = c.id
+       WHERE o.workshop_id = ? AND ${dateFilterJoin}
+       GROUP BY emirate ORDER BY orders DESC`,
       [workshopId, ...dateParams]
     );
     data.by_emirate = byEmirate;
@@ -123,14 +133,19 @@ router.get('/', authMiddleware, async (req, res) => {
        GROUP BY m.id ORDER BY delivered DESC LIMIT 20`,
       [workshopId, ...dateParams]
     );
-    data.driver_performance = mechanicPerformance;
+    // The Reports page reads `mechanic_performance`; `driver_performance` is
+    // the old delivery-platform name, kept as an alias for any other consumer.
+    data.mechanic_performance = mechanicPerformance;
+    data.driver_performance   = mechanicPerformance;
 
     // Work orders by type
     const byType = await query(
       `SELECT work_order_type, COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND ${dateFilter} GROUP BY work_order_type`,
       [workshopId, ...dateParams]
     );
-    data.by_order_type = byType;
+    // Page reads `by_work_order_type`; keep the old name as an alias.
+    data.by_work_order_type = byType;
+    data.by_order_type      = byType;
 
     // Work orders by payment method
     const byPayment = await query(
@@ -155,7 +170,9 @@ router.get('/', authMiddleware, async (req, res) => {
        GROUP BY c.id ORDER BY orders DESC LIMIT 20`,
       [workshopId, ...dateParams]
     );
-    data.top_clients = topCustomers;
+    // Page reads `top_customers`; keep the old name as an alias.
+    data.top_customers = topCustomers;
+    data.top_clients   = topCustomers;
 
     // Service time by service bay (#51)
     const serviceTimeByZone = await query(
@@ -262,14 +279,13 @@ router.get('/performance', authMiddleware, async (req, res) => {
            AND TIMESTAMPDIFF(HOUR, o.created_at, o.completed_at) <= ${SLA_HOURS} THEN 1 ELSE 0 END) as on_time,
          COALESCE(SUM(CASE WHEN o.payment_method = 'cash' AND o.cash_collected > 0
            THEN o.cash_amount ELSE 0 END), 0) as cod_collected,
-         COALESCE(r.avg_rating, 0) as avg_rating,
-         COALESCE(r.rating_count, 0) as rating_count
+         -- Rating is a column on the mechanic. The old query averaged a
+         -- mechanic_ratings table that does not exist in this schema, which
+         -- made the whole performance report 500.
+         COALESCE(m.rating, 0) as avg_rating,
+         SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) as rating_count
        FROM work_orders o
        JOIN mechanics m ON o.mechanic_id = m.id
-       LEFT JOIN (
-         SELECT mechanic_id, ROUND(AVG(rating), 1) as avg_rating, COUNT(*) as rating_count
-         FROM mechanic_ratings GROUP BY mechanic_id
-       ) r ON r.mechanic_id = m.id
        WHERE o.workshop_id = ? AND ${dateFilterJoin}
        GROUP BY m.id
        ORDER BY delivered DESC`,
