@@ -75,6 +75,10 @@ function computeNps({ promoters, detractors, scored }) {
 
 const isBlank = v => v === undefined || v === null || String(v).trim() === '';
 
+// Slug of the workshop that a bare /survey link belongs to. Set this and the
+// public/QR link can be shared as .../survey with no query string.
+const PUBLIC_SURVEY_WORKSHOP = process.env.PUBLIC_SURVEY_WORKSHOP || '';
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  PUBLIC — the survey the customer fills in
 // ═══════════════════════════════════════════════════════════════════════════
@@ -94,8 +98,41 @@ async function resolveWorkshop(req) {
     );
     return w ? w.id : null;
   }
+
+  // A bare /survey link, with nothing in the URL to say which workshop it is
+  // for. PUBLIC_SURVEY_WORKSHOP names that workshop explicitly, which is what
+  // lets the shared link stay clean instead of carrying ?workshop=<slug>.
+  if (!isBlank(PUBLIC_SURVEY_WORKSHOP)) {
+    const [w] = await query(
+      "SELECT id FROM workshops WHERE slug = ? AND status IN ('active','trial')",
+      [PUBLIC_SURVEY_WORKSHOP.trim()]
+    );
+    if (w) return w.id;
+    // Configured but wrong: say so rather than silently filing the response
+    // against whichever workshop happens to come first.
+    console.error(`[survey] PUBLIC_SURVEY_WORKSHOP="${PUBLIC_SURVEY_WORKSHOP}" matches no active workshop`);
+    return null;
+  }
+
+  // Nothing configured: only safe to guess when there is a single workshop.
   const rows = await query("SELECT id FROM workshops WHERE status IN ('active','trial') LIMIT 2");
   return rows.length === 1 ? rows[0].id : null;
+}
+
+/**
+ * True when this workshop is the one a bare /survey link resolves to, so the
+ * dashboard can hand out the short URL rather than the ?workshop= form.
+ */
+async function ownsBarePublicLink(workshopId) {
+  if (isBlank(PUBLIC_SURVEY_WORKSHOP)) {
+    const rows = await query("SELECT id FROM workshops WHERE status IN ('active','trial') LIMIT 2");
+    return rows.length === 1 && rows[0].id === workshopId;
+  }
+  const [w] = await query(
+    "SELECT id FROM workshops WHERE slug = ? AND status IN ('active','trial')",
+    [PUBLIC_SURVEY_WORKSHOP.trim()]
+  );
+  return !!w && w.id === workshopId;
 }
 
 /**
@@ -369,6 +406,7 @@ adminSurveyRouter.get('/stats', async (req, res) => {
     const [workshop] = await query(
       'SELECT slug, name FROM workshops WHERE id = ?', [req.user.workshop_id]
     );
+    const bareLinkIsOurs = await ownsBarePublicLink(req.user.workshop_id);
 
     const verbatims = await query(
       `SELECT r.id, r.nps_score, r.nps_category, r.nps_reason, r.branch,
@@ -431,7 +469,14 @@ adminSurveyRouter.get('/stats', async (req, res) => {
         byService: byService.map(withNps),
         verbatims,
         workshop: workshop
-          ? { slug: workshop.slug, name: workshop.name, surveyPath: `/survey?workshop=${encodeURIComponent(workshop.slug)}` }
+          ? {
+              slug: workshop.slug,
+              name: workshop.name,
+              // Short, shareable form when a bare /survey resolves here.
+              surveyPath: bareLinkIsOurs
+                ? '/survey'
+                : `/survey?workshop=${encodeURIComponent(workshop.slug)}`,
+            }
           : null,
       },
     });
