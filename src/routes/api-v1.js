@@ -11,6 +11,7 @@
 import express from 'express';
 import { query, execute } from '../lib/database.js';
 import { requireApiPermission } from '../middleware/api-key-auth.js';
+import { serviceStatusToken } from '../lib/tokens.js';
 
 const router = express.Router();
 
@@ -354,7 +355,7 @@ router.post('/work_orders', requireApiPermission('work_orders:write'), async (re
 
     // Generate service status token and work order number
     const crypto = await import('crypto');
-    const service_status_token = 'TR' + crypto.randomBytes(6).toString('hex').toUpperCase();
+    const service_status_token = serviceStatusToken(); // SR-08 — was 48-bit 'TR'+randomBytes(6)
     const barcode = service_status_token; // same as service status token for simplicity
     const work_order_number = 'WO-' + Date.now().toString(36).toUpperCase() + '-' + crypto.randomBytes(2).toString('hex').toUpperCase();
 

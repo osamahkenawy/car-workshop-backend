@@ -127,3 +127,24 @@ export const provisioningLimiter = rateLimit({
   keyGenerator: (req) => req.ip,
   handler,
 });
+
+/**
+ * SR-08 — the public service-status lookup. Unauthenticated and keyed only by a
+ * token in the URL, so it is the one endpoint where guessing tokens pays off.
+ * New tokens are 128-bit and not worth guessing, but tokens issued before that
+ * change are 48-bit and stay valid, so the endpoint is capped to make
+ * enumeration impractical regardless.
+ *
+ * Keyed by IP only: the token is attacker-chosen, and keying on it would give
+ * every guess its own fresh bucket — which is exactly the thing being limited.
+ * The cap is generous enough for a customer refreshing a live job (the page
+ * also polls) but far below what a scan needs.
+ */
+export const publicTrackingLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
+  handler,
+});

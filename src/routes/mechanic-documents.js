@@ -18,6 +18,7 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { query, execute } from '../lib/database.js';
+import { fileSuffix } from '../lib/tokens.js';
 
 const router = express.Router();
 
@@ -33,7 +34,7 @@ const docStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, DOCS_DIR),
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    cb(null, `${Date.now()}-${fileSuffix()}${ext}`);
   },
 });
 const docUpload = multer({

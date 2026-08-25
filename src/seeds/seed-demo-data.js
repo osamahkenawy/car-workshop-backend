@@ -247,7 +247,7 @@ async function seed() {
       const vatAmount = +(serviceFee * (vatRate / 100)).toFixed(2);
       const totalAmount = +(serviceFee + vatAmount).toFixed(2);
       const workOrderNumber = `WO-${new Date().getFullYear()}-${String(i + 1).padStart(5, '0')}`;
-      const serviceStatusToken = `svc_${Math.random().toString(36).slice(2, 12)}`;
+      const serviceStatusToken = crypto.randomBytes(16).toString('hex'); // SR-08 — was Math.random()
 
       const [result] = await connection.query(
         `INSERT INTO work_orders

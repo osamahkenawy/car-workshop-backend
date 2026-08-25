@@ -3,6 +3,7 @@ import { query, execute } from '../lib/database.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { sendSMS, interpolate } from '../lib/sms.js';
 import { notifyWorkOrderStatus, notifyCashCollected } from '../lib/notify.js';
+import { publicTrackingLimiter } from '../lib/rate-limits.js';
 
 const router = express.Router();
 
@@ -148,7 +149,7 @@ router.get('/my-orders', authMiddleware, async (req, res) => {
 });
 
 // GET /api/service-status/:token — PUBLIC (no auth needed for customers)
-router.get('/:token', async (req, res) => {
+router.get('/:token', publicTrackingLimiter, async (req, res) => {
   try {
     const [order] = await query(
       `SELECT o.work_order_number, o.status, o.work_order_type, o.customer_name,
@@ -164,6 +165,17 @@ router.get('/:token', async (req, res) => {
       [req.params.token]
     );
     if (!order) return res.status(404).json({ success: false, message: 'Service status token not found' });
+
+    // SR-08 — this endpoint is unauthenticated: anyone holding the link sees
+    // this payload. The customer has a real need to phone the mechanic working
+    // on their car, so the number stays available while the job is live, but is
+    // withheld once the job is closed. Otherwise a link that gets forwarded or
+    // sits in a mailbox exposes an employee's personal number indefinitely.
+    // To withhold it entirely, drop the column from the SELECT above.
+    const ACTIVE_FOR_CONTACT = new Set(['assigned', 'accepted', 'in_progress', 'ready_for_pickup']);
+    if (!ACTIVE_FOR_CONTACT.has(String(order.status))) {
+      delete order.mechanic_phone;
+    }
 
     const statusLogs = await query(
       'SELECT status, note, lat, lng, created_at FROM work_order_status_logs WHERE work_order_id = (SELECT id FROM work_orders WHERE service_status_token = ?) ORDER BY created_at ASC',

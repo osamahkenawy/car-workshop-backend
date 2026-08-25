@@ -74,6 +74,7 @@ import { getIO } from '../lib/socket.js';
 import { mechanicLoginLimiter, mechanicOtpLimiter, mechanicPasswordResetLimiter } from '../lib/rate-limits.js';
 import jwt from 'jsonwebtoken';
 import { config as authConfig } from '../config.js';
+import { fileSuffix } from '../lib/tokens.js';
 
 const router = express.Router();
 
@@ -92,7 +93,7 @@ function makeStorage(subfolder) {
     destination: (_req, _file, cb) => cb(null, path.join(UPLOADS_DIR, subfolder)),
     filename: (_req, file, cb) => {
       const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+      cb(null, `${Date.now()}-${fileSuffix()}${ext}`);
     },
   });
 }

@@ -20,6 +20,7 @@ import { query, execute } from '../lib/database.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { getFinancialConfig, computeWorkOrderFinancials } from '../lib/financial.js';
 import { generateInvoicePDF } from './invoices.js';
+import { serviceStatusToken } from '../lib/tokens.js';
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -243,7 +244,7 @@ router.post('/work-orders', async (req, res) => {
       service_status_token = pt.service_status_token;
       pregeneratedTokenId = pt.id;
     } else {
-      service_status_token = crypto.randomBytes(6).toString('hex').toUpperCase();
+      service_status_token = serviceStatusToken(); // SR-08 — was 48-bit
     }
 
     const result = await execute(
