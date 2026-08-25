@@ -8,6 +8,7 @@ import { getUsageStats } from '../middleware/plan-gate.js';
 import { config } from '../config.js';
 import { detectZone } from '../lib/zone-detect.js';
 import { validatePhone, validateStatus, VALID_MECHANIC_STATUSES } from '../lib/mechanic-validation.js';
+import { clampText, stripMarkup } from '../lib/sanitize.js';
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -31,19 +32,6 @@ const MECHANIC_SORTS = {
   created:       'm.created_at DESC',
 };
 
-// S3 — strip script/style tags + on*= attributes from free-text fields stored on a mechanic.
-// Notes are rendered as plain text in the CRM, but defence-in-depth keeps stored XSS out of the DB.
-function sanitizeNotes(s) {
-  if (s == null) return null;
-  if (typeof s !== 'string') return null;
-  return s
-    .replace(/<\s*script[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi, '')
-    .replace(/<\s*style[^>]*>[\s\S]*?<\s*\/\s*style\s*>/gi, '')
-    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
-    .replace(/javascript:/gi, '')
-    .slice(0, 5000);
-}
 
 // GET /api/mechanics — list all mechanics for the workshop
 // B1/P1 fix: replaced 5 correlated subqueries with a single LEFT JOIN to a per-mechanic aggregate.
@@ -303,8 +291,15 @@ router.post('/', async (req, res) => {
     // 403 (plan limit) — clients shouldn't be told to "upgrade" when their
     // payload is malformed.
     const {
-      full_name, phone, email, service_bay_id, national_id, license_number, notes, joined_at, status
+      phone, service_bay_id, joined_at, status
     } = req.body;
+    // SR-16 — identity fields can never legitimately contain markup, so it is
+    // stripped here rather than pattern-matched. Notes keep their text verbatim.
+    const full_name     = stripMarkup(req.body.full_name);
+    const email         = stripMarkup(req.body.email);
+    const national_id   = stripMarkup(req.body.national_id, 64);
+    const license_number = stripMarkup(req.body.license_number, 64);
+    const notes         = clampText(req.body.notes);
     if (!full_name || !phone) {
       return res.status(400).json({ success: false, message: 'Name and phone required' });
     }
@@ -413,8 +408,12 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const {
-      full_name, phone, email, service_bay_id, status, national_id, license_number, notes, is_active
+      phone, service_bay_id, status, notes, is_active
     } = req.body;
+    const full_name      = stripMarkup(req.body.full_name);
+    const email          = stripMarkup(req.body.email);
+    const national_id    = stripMarkup(req.body.national_id, 64);
+    const license_number = stripMarkup(req.body.license_number, 64);
     // B3 — validate phone if provided
     let normalizedPhone = phone;
     if (phone) {
@@ -424,8 +423,11 @@ router.put('/:id', async (req, res) => {
     }
     // B4 — whitelist status
     const safeStatus = VALID_MECHANIC_STATUSES.includes(status) ? status : 'offline';
-    // S3 — strip raw HTML tags from free-text notes before persisting
-    const safeNotes = sanitizeNotes(notes);
+    // SR-16 — the old hand-rolled blocklist here missed unquoted handlers such
+    // as <img src=x onerror=alert(1)>. lib/sanitize.js uses an allow-list
+    // parser instead. Notes keep their text verbatim ("worn < 2mm" must
+    // survive); identity fields have markup removed outright.
+    const safeNotes = clampText(notes);
     await execute(
       `UPDATE mechanics SET full_name=?, phone=?, email=?,
        service_bay_id=?, status=?, national_id=?, license_number=?,

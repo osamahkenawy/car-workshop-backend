@@ -2,6 +2,7 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import { query, execute } from '../lib/database.js';
 import { config } from '../config.js';
+import { sanitizeRichHtml, stripMarkup } from '../lib/sanitize.js';
 
 /**
  * Ported from delivery-service-backend/src/routes/legal-pages.js.
@@ -108,7 +109,15 @@ adminRouter.get('/legal-pages/:slug', async (req, res) => {
 // ──────────────────────────────────────────────────────────────
 adminRouter.put('/legal-pages/:slug', async (req, res) => {
   try {
-    const { title_en, title_ar, content_en, content_ar, is_published } = req.body;
+    const raw = req.body;
+    // Legal page content is deliberately HTML and is served publicly to the
+    // mobile app, so it is sanitised against a formatting allow-list on write:
+    // headings/lists/links survive, script/style/handlers/javascript: do not.
+    const title_en = stripMarkup(raw.title_en, 255);
+    const title_ar = stripMarkup(raw.title_ar, 255);
+    const content_en = sanitizeRichHtml(raw.content_en);
+    const content_ar = sanitizeRichHtml(raw.content_ar);
+    const is_published = raw.is_published;
     const rows = await query('SELECT id FROM legal_pages WHERE slug = ?', [req.params.slug]);
     if (!rows.length) return res.status(404).json({ success: false, error: 'Page not found.' });
 
