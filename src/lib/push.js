@@ -48,23 +48,23 @@ export async function ensurePushTable() {
   await execute(`
     CREATE TABLE IF NOT EXISTS user_notifications (
       id            INT AUTO_INCREMENT PRIMARY KEY,
-      tenant_id     INT NOT NULL,
+      workshop_id   INT NOT NULL,
       user_id       INT NOT NULL,
       title         VARCHAR(255) NOT NULL,
       body          TEXT NOT NULL,
       type          VARCHAR(50)  DEFAULT 'info',
       icon          VARCHAR(10)  DEFAULT '🔔',
       link          VARCHAR(500) DEFAULT NULL,
-      order_id      INT          DEFAULT NULL,
+      work_order_id INT          DEFAULT NULL,
       is_read       BOOLEAN      DEFAULT FALSE,
       created_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
       read_at       TIMESTAMP    NULL,
       KEY idx_un_user     (user_id, is_read),
-      KEY idx_un_tenant   (tenant_id),
-      KEY idx_un_dedup    (user_id, order_id, type, created_at),
-      KEY idx_un_history  (order_id, type, created_at),
+      KEY idx_un_ws       (workshop_id),
+      KEY idx_un_dedup    (user_id, work_order_id, type, created_at),
+      KEY idx_un_history  (work_order_id, type, created_at),
       KEY idx_un_cleanup  (is_read, created_at),
-      FOREIGN KEY (tenant_id) REFERENCES workshops(id) ON DELETE CASCADE,
+      FOREIGN KEY (workshop_id) REFERENCES workshops(id) ON DELETE CASCADE,
       FOREIGN KEY (user_id)   REFERENCES users(id)   ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
   `).catch(() => {});
@@ -72,8 +72,8 @@ export async function ensurePushTable() {
   // Idempotent index migration for pre-existing user_notifications tables.
   // Wrapped in try/catch so we don't fail startup if the index already exists.
   for (const stmt of [
-    'ALTER TABLE user_notifications ADD INDEX idx_un_dedup (user_id, order_id, type, created_at)',
-    'ALTER TABLE user_notifications ADD INDEX idx_un_history (order_id, type, created_at)',
+    'ALTER TABLE user_notifications ADD INDEX idx_un_dedup (user_id, work_order_id, type, created_at)',
+    'ALTER TABLE user_notifications ADD INDEX idx_un_history (work_order_id, type, created_at)',
     'ALTER TABLE user_notifications ADD INDEX idx_un_cleanup (is_read, created_at)',
   ]) {
     await execute(stmt).catch(() => { /* index already exists */ });

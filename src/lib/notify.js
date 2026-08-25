@@ -38,7 +38,7 @@ export async function createInAppNotification({ workshopId, userId, title, body,
       try {
         const dup = await query(
           `SELECT id FROM user_notifications
-            WHERE user_id = ? AND order_id = ? AND type = ?
+            WHERE user_id = ? AND work_order_id = ? AND type = ?
               AND created_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)
             LIMIT 1`,
           [userId, orderId, type]
@@ -46,11 +46,15 @@ export async function createInAppNotification({ workshopId, userId, title, body,
         if (dup && dup.length) {
           return { success: true, id: dup[0].id, deduped: true };
         }
-      } catch (_) { /* table or columns may not exist yet — proceed */ }
+      } catch (e) {
+        // This used to swallow silently, which hid the fact that the table
+        // did not exist at all. Dedup is best-effort, so still proceed.
+        console.warn('[notify] dedup check failed:', e.message);
+      }
     }
 
     const result = await execute(
-      `INSERT INTO user_notifications (tenant_id, user_id, title, body, type, icon, link, order_id)
+      `INSERT INTO user_notifications (workshop_id, user_id, title, body, type, icon, link, work_order_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [workshopId, userId, title, body, type, icon, link || null, orderId || null]
     );

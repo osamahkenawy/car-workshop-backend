@@ -13,6 +13,7 @@ import { load as yamlLoad } from 'js-yaml';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { config } from './config.js';
+import { ensurePushTable } from './lib/push.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -279,6 +280,13 @@ if (process.env.DISABLE_CRON_JOBS !== 'true') {
   try { startDataRetention(); } catch (e) { console.error('startDataRetention failed:', e.message); }
   try { startTrialEnforcer(); } catch (e) { console.error('startTrialEnforcer failed:', e.message); }
   try { startScheduledReports(); } catch (e) { console.error('startScheduledReports failed:', e.message); }
+
+  // ensurePushTable() creates push_subscriptions and user_notifications. It was
+  // exported but never called, so on every deployment the in-app notification
+  // table simply did not exist and all seven notification routes returned 500.
+  ensurePushTable()
+    .then(() => console.log('✅ Notification tables ensured'))
+    .catch(e => console.error('ensurePushTable failed:', e.message));
 }
 
 httpServer.listen(config.port, () => {

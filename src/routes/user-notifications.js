@@ -63,6 +63,9 @@ router.get('/unread-count', async (req, res) => {
     );
     return res.json({ success: true, count });
   } catch (err) {
+    // This returned 500 with no log for as long as the table was missing,
+    // which made the failure invisible in the server output.
+    console.error('[UserNotifications] unread-count error:', err.message);
     return res.status(500).json({ success: false, count: 0 });
   }
 });
