@@ -100,5 +100,7 @@ vehicle pickup) was kept as `getRoadDistance()` in the trimmed
   connection pool connects lazily on first query. `npm start` without a
   reachable database will boot the HTTP server and fail only when a request
   actually hits the DB.
-- Demo/default login after seeding: username `admin`, password `Demo@12345`
+- Demo/default login after seeding: username `admin`. The password is generated
+  and printed once by the seeder — copy it from that output and change it after
+  first login. Set `SEED_ADMIN_PASSWORD` to choose your own instead.
   (change this immediately in any real deployment).

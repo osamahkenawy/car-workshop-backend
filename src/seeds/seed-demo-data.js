@@ -14,6 +14,7 @@
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 import { config } from '../config.js';
+import crypto from 'node:crypto';
 
 const random = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -110,14 +111,23 @@ async function seed() {
     );
     let adminUserId;
     if (existingAdmin.length === 0) {
-      const passwordHash = await bcrypt.hash('Demo@12345', 10);
+      // SR-02 — the seeded password used to be the literal 'Demo@12345', which
+      // is documented in a public repo and is therefore a known credential on
+      // every deployment that ran this seed. Generate one instead and print it
+      // once, so the operator can log in and change it. Set SEED_ADMIN_PASSWORD
+      // to choose your own.
+      const adminPassword = process.env.SEED_ADMIN_PASSWORD
+        || `Pnr-${crypto.randomBytes(12).toString('base64url')}`;
+      const passwordHash = await bcrypt.hash(adminPassword, 10);
       const [result] = await connection.query(
         `INSERT INTO users (workshop_id, full_name, username, email, phone, password, role, is_active, is_owner, email_verified)
          VALUES (?, ?, ?, ?, ?, ?, 'admin', 1, 1, 1)`,
         [workshopId, 'Workshop Admin', 'admin', 'admin@demo-workshop.local', '+971501234567', passwordHash]
       );
       adminUserId = result.insertId;
-      console.log(`Created admin user id=${adminUserId} (username: admin / password: Demo@12345)\n`);
+      console.log(`Created admin user id=${adminUserId} (username: admin)`);
+      console.log(`  password: ${adminPassword}`);
+      console.log('  ^ shown once. Store it now and change it after first login.');
     } else {
       adminUserId = existingAdmin[0].id;
     }

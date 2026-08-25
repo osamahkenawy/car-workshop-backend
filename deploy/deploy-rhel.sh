@@ -7,14 +7,42 @@
 # ============================================================
 set -e
 
-SERVER_IP="10.10.241.84"
-BACKEND_DIR="/var/www/car-workshop/backend"
-FRONTEND_DIR="/var/www/car-workshop/frontend"
-BACKEND_REPO="https://github.com/osamahkenawy/car-workshop-backend.git"
-FRONTEND_REPO="https://github.com/osamahkenawy/car-workshop-frontend.git"
-DB_NAME="car_workshop"
-DB_USER="root"
-DB_PASS="Root@12345"    # MySQL 8 enforces password complexity — change if needed
+# ── Configuration ────────────────────────────────────────────
+# Nothing secret is committed here. Supply values in the environment:
+#   DB_PASS=... SERVER_IP=... bash deploy-rhel.sh
+SERVER_IP="${SERVER_IP:-10.10.241.84}"
+BACKEND_DIR="${BACKEND_DIR:-/var/www/car-workshop/backend}"
+FRONTEND_DIR="${FRONTEND_DIR:-/var/www/car-workshop/frontend}"
+BACKEND_REPO="${BACKEND_REPO:-https://github.com/osamahkenawy/car-workshop-backend.git}"
+FRONTEND_REPO="${FRONTEND_REPO:-https://github.com/osamahkenawy/car-workshop-frontend.git}"
+DB_NAME="${DB_NAME:-car_workshop}"
+DB_USER="${DB_USER:-root}"
+
+# SR-02 — the database password used to be hard-coded in this file, in a public
+# repository. It must now come from the environment; the script refuses to run
+# without it rather than falling back to a known value.
+if [ -z "${DB_PASS:-}" ]; then
+  echo "ERROR: DB_PASS is not set."
+  echo "  Run:  DB_PASS='<mysql password>' bash deploy-rhel.sh"
+  exit 1
+fi
+
+# SR-02 — the JWT secret was "rhel-staging-jwt-secret-$(date +%s)". The only
+# unknown in that is a unix timestamp, so an attacker who knows roughly when the
+# deploy ran can brute-force the signing key in seconds and mint valid tokens
+# for any account. Generate a real one, and keep it across redeploys so existing
+# sessions are not silently invalidated.
+JWT_SECRET_FILE="${JWT_SECRET_FILE:-/etc/car-workshop/jwt.secret}"
+if [ -s "$JWT_SECRET_FILE" ]; then
+  JWT_SECRET="$(sudo cat "$JWT_SECRET_FILE")"
+  echo "  Reusing existing JWT secret from ${JWT_SECRET_FILE}"
+else
+  JWT_SECRET="$(openssl rand -hex 32)"
+  sudo mkdir -p "$(dirname "$JWT_SECRET_FILE")"
+  printf '%s' "$JWT_SECRET" | sudo tee "$JWT_SECRET_FILE" >/dev/null
+  sudo chmod 600 "$JWT_SECRET_FILE"
+  echo "  Generated a new 256-bit JWT secret → ${JWT_SECRET_FILE}"
+fi
 
 echo ""
 echo "=========================================================="
@@ -121,7 +149,7 @@ DB_USER=${DB_USER}
 DB_PASSWORD=${DB_PASS}
 DB_NAME=${DB_NAME}
 
-JWT_SECRET=rhel-staging-jwt-secret-$(date +%s)
+JWT_SECRET=${JWT_SECRET}
 JWT_EXPIRES_IN=7d
 MECHANIC_ACCESS_TTL_SHORT=12h
 MECHANIC_REFRESH_TTL_DAYS=30
