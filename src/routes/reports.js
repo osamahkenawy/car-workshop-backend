@@ -123,6 +123,11 @@ router.get('/', authMiddleware, async (req, res) => {
     // Mechanic performance
     const mechanicPerformance = await query(
       `SELECT m.full_name,
+              -- The Reports table had a VEHICLE column reading row.vehicle_type,
+              -- a leftover from the delivery platform where a driver had a
+              -- vehicle. Mechanics have a specialty instead, and the query never
+              -- selected any vehicle field, so the column was always blank.
+              m.specialty,
               COUNT(o.id) as total_assigned,
               SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) as delivered,
               SUM(CASE WHEN o.status = 'failed' THEN 1 ELSE 0 END) as failed,
