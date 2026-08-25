@@ -44,7 +44,10 @@ async function uploadToS3Remote(fileBuffer, folder, filename, mimeType) {
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID || config.s3?.accessKeyId;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY || config.s3?.secretAccessKey;
 
-  const key = `${folder}/${filename}`;
+  // S3 keys are flat strings, so "../" cannot escape the bucket the way it
+  // escapes a filesystem path — but it still writes to a key the caller did not
+  // intend, so the same sanitising applies.
+  const key = `${path.basename(String(folder || 'misc'))}/${safeFilename(filename)}`;
 
   // Dynamic import so a missing '@aws-sdk/client-s3' package never crashes
   // module load — only matters at the moment an upload is actually attempted.
@@ -70,12 +73,42 @@ async function uploadToS3Remote(fileBuffer, folder, filename, mimeType) {
   return { url, key, bucket };
 }
 
+/**
+ * Reduce a caller-supplied name to something safe to join onto a path.
+ *
+ * Callers pass req.file.originalname straight through, which is chosen by
+ * whoever is uploading. path.join(dir, '../../../../etc/cron.d/x') resolves
+ * outside the uploads directory entirely, so this was an arbitrary file write
+ * — a writable path under /etc or a web root is remote code execution.
+ *
+ * Only the basename is kept, and any character that is not a plain filename
+ * character is replaced. An empty or dot-only result gets a generated name.
+ */
+function safeFilename(filename) {
+  const base = path.basename(String(filename || ''));      // drops any directory part
+  const cleaned = base.replace(/[^A-Za-z0-9._-]/g, '_')    // no separators survive
+                      .replace(/^\.+/, '')                 // no leading dots
+                      .slice(0, 200);
+  return cleaned || `file-${Date.now()}`;
+}
+
 async function uploadToLocal(fileBuffer, folder, filename) {
-  const dir = path.join(UPLOADS_DIR, folder);
+  const safeFolder = path.basename(String(folder || 'misc'));
+  const dir = path.join(UPLOADS_DIR, safeFolder);
   await fs.mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, filename);
+
+  const safeName = safeFilename(filename);
+  const filePath = path.join(dir, safeName);
+
+  // Belt and braces: even with the sanitising above, refuse to write anywhere
+  // that is not inside the uploads directory.
+  const root = path.resolve(UPLOADS_DIR);
+  if (!path.resolve(filePath).startsWith(root + path.sep)) {
+    throw new Error('Refusing to write outside the uploads directory');
+  }
+
   await fs.writeFile(filePath, fileBuffer);
-  return { url: `/uploads/${folder}/${filename}`, key: `${folder}/${filename}` };
+  return { url: `/uploads/${safeFolder}/${safeName}`, key: `${safeFolder}/${safeName}` };
 }
 
 /**

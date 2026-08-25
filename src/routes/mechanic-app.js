@@ -75,6 +75,7 @@ import { mechanicLoginLimiter, mechanicOtpLimiter, mechanicPasswordResetLimiter 
 import jwt from 'jsonwebtoken';
 import { config as authConfig } from '../config.js';
 import { fileSuffix } from '../lib/tokens.js';
+import { validateUpload, IMAGE_KINDS } from '../lib/file-validate.js';
 
 const router = express.Router();
 
@@ -638,7 +639,7 @@ router.put('/profile', async (req, res) => {
  * POST /api/mechanic-app/profile/avatar
  * Upload/update mechanic avatar photo
  */
-router.post('/profile/avatar', avatarUpload.single('file'), async (req, res) => {
+router.post('/profile/avatar', avatarUpload.single('file'), validateUpload(IMAGE_KINDS), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
     const mechanic = await getMechanic(req);
@@ -1288,7 +1289,7 @@ router.post('/pickups/:workOrderId/arrived', async (req, res) => {
  * POST /api/mechanic-app/pickups/:workOrderId/proof-photo
  * Upload vehicle pickup proof photo — saves to pickup_proof_url (NOT proof_of_delivery_url)
  */
-router.post('/pickups/:workOrderId/proof-photo', proofUpload.single('file'), async (req, res) => {
+router.post('/pickups/:workOrderId/proof-photo', proofUpload.single('file'), validateUpload(IMAGE_KINDS), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
     const mechanic = await getMechanic(req);
@@ -1326,7 +1327,7 @@ router.post('/pickups/:workOrderId/proof-photo', proofUpload.single('file'), asy
  * POST /api/mechanic-app/pickups/:workOrderId/signature
  * Upload vehicle pickup / customer signature — saves to pickup_signature_url (NOT signature_url)
  */
-router.post('/pickups/:workOrderId/signature', signatureUpload.single('file'), async (req, res) => {
+router.post('/pickups/:workOrderId/signature', signatureUpload.single('file'), validateUpload(IMAGE_KINDS), async (req, res) => {
   try {
     const mechanic = await getMechanic(req);
     if (!mechanic) return res.status(404).json({ success: false, message: 'Mechanic profile not found' });
@@ -1604,7 +1605,7 @@ router.post('/scan', async (req, res) => {
  * with the stops concept — this single endpoint now covers what the
  * original split between order-level and stop-level proof photos.
  */
-router.post('/orders/:workOrderId/proof-photo', proofUpload.single('file'), async (req, res) => {
+router.post('/orders/:workOrderId/proof-photo', proofUpload.single('file'), validateUpload(IMAGE_KINDS), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
     const mechanic = await getMechanic(req);
@@ -1660,7 +1661,7 @@ router.post('/orders/:workOrderId/proof-photo', proofUpload.single('file'), asyn
  * POST /api/mechanic-app/orders/:workOrderId/signature
  * Upload customer completion sign-off signature
  */
-router.post('/orders/:workOrderId/signature', signatureUpload.single('file'), async (req, res) => {
+router.post('/orders/:workOrderId/signature', signatureUpload.single('file'), validateUpload(IMAGE_KINDS), async (req, res) => {
   try {
     const mechanic = await getMechanic(req);
     if (!mechanic) return res.status(404).json({ success: false, message: 'Mechanic profile not found' });

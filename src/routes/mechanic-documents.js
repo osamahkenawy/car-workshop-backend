@@ -19,6 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import { query, execute } from '../lib/database.js';
 import { fileSuffix } from '../lib/tokens.js';
+import { validateUpload, DOC_KINDS } from '../lib/file-validate.js';
 
 const router = express.Router();
 
@@ -97,7 +98,7 @@ router.get('/', async (req, res) => {
 /* ────────────────────────────────────────────────────────────
    POST /api/mechanic-documents  (multipart: file, mechanic_id, doc_type, expiry_date?)
    ──────────────────────────────────────────────────────────── */
-router.post('/', docUpload.single('file'), async (req, res) => {
+router.post('/', docUpload.single('file'), validateUpload(DOC_KINDS), async (req, res) => {
   try {
     const { mechanic_id, doc_type, expiry_date, notes } = req.body;
     if (!mechanic_id || !doc_type) {

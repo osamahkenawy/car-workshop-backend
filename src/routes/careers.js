@@ -29,6 +29,7 @@ import path from 'path';
 import fs from 'fs';
 import { query, execute } from '../lib/database.js';
 import { sendEmail, buildEmailTemplate } from '../lib/email.js';
+import { validateUpload, RESUME_KINDS } from '../lib/file-validate.js';
 
 /* ─── File Upload Config ────────────────────── */
 const resumeDir = path.join(process.cwd(), 'uploads', 'resumes');
@@ -85,7 +86,7 @@ publicCareersRouter.get('/careers/:id', async (req, res) => {
 });
 
 // POST /api/public/careers/apply — Submit application
-publicCareersRouter.post('/careers/apply', upload.single('resume'), async (req, res) => {
+publicCareersRouter.post('/careers/apply', upload.single('resume'), validateUpload(RESUME_KINDS), async (req, res) => {
   try {
     const { opening_id, full_name, email, phone, cover_letter } = req.body;
 

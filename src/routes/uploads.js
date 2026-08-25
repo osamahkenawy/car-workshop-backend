@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { query, execute } from '../lib/database.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { uploadToS3 } from '../lib/s3.js';
+import { validateUpload, IMAGE_KINDS } from '../lib/file-validate.js';
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -53,7 +54,7 @@ const stopProofPhoto = makeUpload('stop-proofs', 10);
 const signaturePhoto = makeUpload('signatures', 5);
 
 /* ── POST /api/uploads/logo/:variant — company logo upload (colored or white) ── */
-router.post('/logo/:variant?', logoUpload.single('file'), async (req, res) => {
+router.post('/logo/:variant?', logoUpload.single('file'), validateUpload(IMAGE_KINDS), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
 
@@ -102,7 +103,7 @@ router.post('/logo/:variant?', logoUpload.single('file'), async (req, res) => {
 });
 
 /* ── POST /api/uploads/mechanics/:id/photo ───────────────────── */
-router.post('/mechanics/:id/photo', mechanicPhoto.single('file'), async (req, res) => {
+router.post('/mechanics/:id/photo', mechanicPhoto.single('file'), validateUpload(IMAGE_KINDS), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
     const [mechanic] = await query(
@@ -144,7 +145,7 @@ async function saveBase64Signature(base64DataUrl, workOrderId) {
 }
 
 /* ── POST /api/uploads/work-orders/:id/proof ───────────────── */
-router.post('/work-orders/:id/proof', proofPhoto.single('file'), async (req, res) => {
+router.post('/work-orders/:id/proof', proofPhoto.single('file'), validateUpload(IMAGE_KINDS), async (req, res) => {
   try {
     const [workOrder] = await query(
       'SELECT id, status FROM work_orders WHERE id = ? AND workshop_id = ?', [req.params.id, req.workshopId]
@@ -186,7 +187,7 @@ router.post('/work-orders/:id/proof', proofPhoto.single('file'), async (req, res
    endpoint is not expected to be commonly used in the car-workshop
    domain — left in place per "preserve business logic" guidance rather
    than silently dropped. ── */
-router.post('/stops/:stopId/proof', stopProofPhoto.single('file'), async (req, res) => {
+router.post('/stops/:stopId/proof', stopProofPhoto.single('file'), validateUpload(IMAGE_KINDS), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
     const [stop] = await query(
@@ -204,7 +205,7 @@ router.post('/stops/:stopId/proof', stopProofPhoto.single('file'), async (req, r
 });
 
 /* ── POST /api/uploads/work-orders/:id/signature — Customer signature capture ── */
-router.post('/work-orders/:id/signature', signaturePhoto.single('file'), async (req, res) => {
+router.post('/work-orders/:id/signature', signaturePhoto.single('file'), validateUpload(IMAGE_KINDS), async (req, res) => {
   try {
     const [workOrder] = await query(
       'SELECT id, status FROM work_orders WHERE id = ? AND workshop_id = ?', [req.params.id, req.workshopId]
