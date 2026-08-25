@@ -46,6 +46,19 @@ import { getFinancialConfig, computeWorkOrderFinancials, recordMechanicEarning }
 import { checkLimit as checkLimitFn, getUsageStats } from '../middleware/plan-gate.js';
 import crypto from 'crypto';
 import { serviceStatusToken } from '../lib/tokens.js';
+import { stripMarkupFields, clampTextFields } from '../lib/sanitize.js';
+
+// SR-01/SR-16 — sanitise at the write boundary. Identity fields can never
+// legitimately contain markup, so it is stripped; free text is stored verbatim
+// because HTML-stripping a note destroys legitimate content such as
+// "worn < 2mm". Only keys actually present in the body are touched, so the
+// update routes' "default to the existing row" destructuring still works.
+const WORK_ORDERS_IDENTITY = ['customer_name', 'customer_phone', 'customer_email', 'dropoff_address', 'pickup_address', 'service_category', 'recipient_name', 'recipient_phone', 'recipient_address', 'recipient_area', 'recipient_emirate'];
+const WORK_ORDERS_FREE_TEXT = ['notes', 'special_instructions', 'description'];
+function _clean(body) {
+  return clampTextFields(stripMarkupFields(body || {}, WORK_ORDERS_IDENTITY), WORK_ORDERS_FREE_TEXT);
+}
+
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -650,7 +663,7 @@ router.post('/', async (req, res) => {
       payment_method = 'cash', cash_amount = 0, service_fee = 0,
       discount = 0, items = [], notes,
       pregenerated_token, // optional pre-printed service status token
-    } = req.body;
+    } = _clean(req.body);
 
     // If no customer_email provided but customer has one on file, use that
     let resolvedEmail = customer_email || '';
@@ -1020,7 +1033,7 @@ router.put('/:id', async (req, res) => {
       dropoff_address, dropoff_lat, dropoff_lng,
       description, special_instructions, payment_method,
       cash_amount, service_fee, discount, scheduled_at, notes,
-    } = req.body;
+    } = _clean(req.body);
 
     if (!customer_name || !customer_phone) {
       return res.status(400).json({ success: false, message: 'Customer name and phone required' });

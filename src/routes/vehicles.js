@@ -1,6 +1,19 @@
 import express from 'express';
 import { query, execute } from '../lib/database.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { stripMarkupFields, clampTextFields } from '../lib/sanitize.js';
+
+// SR-01/SR-16 — sanitise at the write boundary. Identity fields can never
+// legitimately contain markup, so it is stripped; free text is stored verbatim
+// because HTML-stripping a note destroys legitimate content such as
+// "worn < 2mm". Only keys actually present in the body are touched, so the
+// update routes' "default to the existing row" destructuring still works.
+const VEHICLES_IDENTITY = ['make', 'model', 'plate_number', 'vin', 'color', 'fuel_type', 'transmission'];
+const VEHICLES_FREE_TEXT = ['notes'];
+function _clean(body) {
+  return clampTextFields(stripMarkupFields(body || {}, VEHICLES_IDENTITY), VEHICLES_FREE_TEXT);
+}
+
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -150,7 +163,7 @@ router.post('/', async (req, res) => {
     const {
       customer_id, make, model, year, plate_number, vin, color,
       mileage, fuel_type = 'petrol', transmission = 'automatic', notes
-    } = req.body;
+    } = _clean(req.body);
 
     if (!customer_id || !make || !model) {
       return res.status(400).json({ success: false, message: 'Customer, make and model required' });
@@ -199,7 +212,7 @@ router.put('/:id', async (req, res) => {
       transmission = existing.transmission,
       notes = existing.notes,
       is_active = existing.is_active,
-    } = req.body;
+    } = _clean(req.body);
 
     // If customer_id is being changed, validate it belongs to this workshop
     if (req.body.customer_id) {

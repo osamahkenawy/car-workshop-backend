@@ -123,4 +123,23 @@ export function stripMarkupFields(body, keys, max = 255) {
   return out;
 }
 
+/**
+ * Apply clampText to the named free-text keys of a body object, returning a
+ * shallow copy.
+ *
+ * Like stripMarkupFields, this only touches keys the body actually contains.
+ * That guard matters: the update routes destructure with defaults taken from
+ * the existing row, so writing null for an absent key would wipe the stored
+ * value instead of leaving it alone.
+ */
+export function clampTextFields(body, keys, max = TEXT_MAX) {
+  const out = { ...body };
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(out, k) && typeof out[k] === 'string') {
+      out[k] = clampText(out[k], max);
+    }
+  }
+  return out;
+}
+
 export default stripMarkup;

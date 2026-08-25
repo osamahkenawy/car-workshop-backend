@@ -12,6 +12,7 @@ import express from 'express';
 import { query, execute } from '../lib/database.js';
 import { requireApiPermission } from '../middleware/api-key-auth.js';
 import { serviceStatusToken } from '../lib/tokens.js';
+import { stripMarkup, clampText } from '../lib/sanitize.js';
 
 const router = express.Router();
 
@@ -131,6 +132,9 @@ router.post('/enquiries', requireApiPermission('enquiries:write'), async (req, r
       [req.workshopId, phone]
     );
 
+    // SR-01/SR-16 — this endpoint is public (API-key only) and the payload
+    // comes from a website form, so identity fields have markup stripped before
+    // storage. The note keeps its text verbatim.
     const result = await execute(
       `INSERT INTO enquiries
          (workshop_id, enquiry_number, external_reference, customer_id,
@@ -143,16 +147,16 @@ router.post('/enquiries', requireApiPermission('enquiries:write'), async (req, r
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'api', ?, 'new', NULL)`,
       [
         req.workshopId, enquiryNumber, extRef, known ? known.id : null,
-        String(customer.name).trim(), phone,
-        isBlank(customer.email) ? null : String(customer.email).trim(),
-        vehicleDescription,
-        isBlank(vehicle.plateNumber) ? null : String(vehicle.plateNumber).trim(),
+        stripMarkup(String(customer.name).trim()), phone,
+        isBlank(customer.email) ? null : stripMarkup(String(customer.email).trim()),
+        stripMarkup(vehicleDescription, 255),
+        isBlank(vehicle.plateNumber) ? null : stripMarkup(String(vehicle.plateNumber).trim(), 64),
         mapEnquiryType(service),
-        isBlank(notes) ? null : String(notes).trim(),
+        isBlank(notes) ? null : clampText(String(notes).trim()),
         mapSourceChannel(source),
         isBlank(source) ? null : String(source).trim(),
         'website_form',
-        isBlank(branch) ? null : String(branch).trim(),
+        isBlank(branch) ? null : stripMarkup(String(branch).trim(), 120),
         isBlank(service) ? null : String(service).trim(),
         isBlank(preferredDate) ? null : String(preferredDate).trim(),
         JSON.stringify(body),

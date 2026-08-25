@@ -1,6 +1,19 @@
 import express from 'express';
 import { query, execute } from '../lib/database.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { stripMarkupFields, clampTextFields } from '../lib/sanitize.js';
+
+// SR-01/SR-16 — sanitise at the write boundary. Identity fields can never
+// legitimately contain markup, so it is stripped; free text is stored verbatim
+// because HTML-stripping a note destroys legitimate content such as
+// "worn < 2mm". Only keys actually present in the body are touched, so the
+// update routes' "default to the existing row" destructuring still works.
+const CUSTOMERS_IDENTITY = ['full_name', 'company_name', 'email', 'phone', 'phone_alt', 'address_line1', 'address_line2', 'area', 'city', 'emirate', 'trn', 'contact_person'];
+const CUSTOMERS_FREE_TEXT = ['notes'];
+function _clean(body) {
+  return clampTextFields(stripMarkupFields(body || {}, CUSTOMERS_IDENTITY), CUSTOMERS_FREE_TEXT);
+}
+
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -136,7 +149,7 @@ router.post('/', async (req, res) => {
       full_name, company_name, email, phone, phone_alt, type = 'individual',
       client_category = 'other', address_line1, address_line2, area, city,
       emirate: rawEmirate, latitude, longitude, credit_limit, notes
-    } = req.body;
+    } = _clean(req.body);
     const emirate = rawEmirate ? String(rawEmirate).slice(0, 100) : null;
     if (!full_name || !phone) {
       return res.status(400).json({ success: false, message: 'Name and phone required' });
@@ -217,7 +230,7 @@ router.put('/:id', async (req, res) => {
       credit_limit = existing.credit_limit,
       notes = existing.notes,
       is_active = existing.is_active,
-    } = req.body;
+    } = _clean(req.body);
 
     // Validate phone format if changed
     if (req.body.phone) {
