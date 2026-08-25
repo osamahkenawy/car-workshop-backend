@@ -5,11 +5,12 @@ import { query, execute } from '../lib/database.js';
 import { generateToken, authMiddleware } from '../middleware/auth.js';
 import { sendNotificationEmail } from '../lib/email.js';
 import { config } from '../config.js';
+import { loginLimiter, passwordResetLimiter, registrationLimiter } from '../lib/rate-limits.js';
 
 const router = express.Router();
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { username, password, subdomain } = req.body;
     if (!username || !password) {
@@ -135,7 +136,7 @@ router.post('/login', async (req, res) => {
 });
 
 // POST /api/auth/mechanic-login  — Mobile app mechanic-only login
-router.post('/mechanic-login', async (req, res) => {
+router.post('/mechanic-login', loginLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -357,7 +358,7 @@ router.get('/branding', async (req, res) => {
 });
 
 // POST /api/auth/register-workshop
-router.post('/register-workshop', async (req, res) => {
+router.post('/register-workshop', registrationLimiter, async (req, res) => {
   try {
     const { workshop_name, workshop_type, full_name, email, username, password, phone } = req.body;
     if (!workshop_name || !email || !username || !password || !full_name) {
@@ -403,7 +404,7 @@ router.post('/register-workshop', async (req, res) => {
 });
 
 // POST /api/auth/forgot-password  (PUBLIC — no auth required)
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ success: false, message: 'Email required' });
@@ -466,7 +467,7 @@ router.post('/forgot-password', async (req, res) => {
 });
 
 // POST /api/auth/reset-password  (PUBLIC — no auth required)
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', passwordResetLimiter, async (req, res) => {
   try {
     const { token, new_password } = req.body;
     if (!token || !new_password) {

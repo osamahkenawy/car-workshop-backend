@@ -21,6 +21,7 @@
 
 import { Server } from 'socket.io';
 import { verifyToken } from '../middleware/auth.js';
+import { config } from '../config.js';
 
 let io = null;
 
@@ -36,10 +37,20 @@ let io = null;
 export function initSocket(httpServer) {
   if (io) return io; // already initialized — idempotent
 
+  // Pinned to the configured frontend rather than '*'. The REST CORS policy is
+  // already scoped; leaving the socket wide open undoes that for everything
+  // that travels over the socket.
+  const socketOrigins = config.frontendUrl === '*'
+    ? '*'
+    : (config.env === 'production'
+        ? [config.frontendUrl]
+        : [config.frontendUrl, 'http://localhost:3000', 'http://localhost:5173']);
+
   io = new Server(httpServer, {
     cors: {
-      origin: '*',
+      origin: socketOrigins,
       methods: ['GET', 'POST'],
+      credentials: true,
     },
   });
 
@@ -60,12 +71,22 @@ export function initSocket(httpServer) {
           return;
         }
 
-        if (decoded.workshop_id) {
+        // The workshop room carries staff-only traffic — most importantly live
+        // mechanic GPS and phone numbers (mechanics.js emits
+        // 'mechanic:location' to it). Any token with a workshop_id used to be
+        // admitted, and customer tokens carry one, so customers could listen
+        // to staff movements. Customers get their own per-order track:{token}
+        // room instead, which the tracking page already uses.
+        const STAFF_ROLES = new Set(['admin', 'dispatcher', 'manager', 'owner', 'mechanic', 'staff']);
+        const role = String(decoded.role || '').toLowerCase();
+
+        if (decoded.workshop_id && STAFF_ROLES.has(role)) {
           socket.join(`workshop:${decoded.workshop_id}`);
         }
         if (decoded.id) {
           socket.join(`user:${decoded.id}`);
         }
+        socket.data.role = role;
 
         socket.data.userId = decoded.id;
         socket.data.workshopId = decoded.workshop_id;

@@ -372,7 +372,9 @@ router.post('/forgot-password', mechanicOtpLimiter, async (req, res) => {
 
     const user = users[0];
     // Generate 6-digit OTP
-    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    // crypto.randomInt, not Math.random: Math.random is a predictable PRNG and
+    // this value is a single-factor credential.
+    const otp = String(crypto.randomInt(100000, 1000000));
     // B8 — OTP expiry is configurable per workshop via workshops.settings.otp_expiry_minutes (default 15)
     let otpMinutes = 15;
     try {

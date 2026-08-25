@@ -17,6 +17,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { query, execute } from '../lib/database.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { assertSafeOutboundUrl } from '../lib/url-guard.js';
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -160,8 +161,13 @@ router.post('/', async (req, res) => {
     if (!name || !url) {
       return res.status(400).json({ success: false, message: 'name and url are required' });
     }
-    try { new URL(url); } catch {
-      return res.status(400).json({ success: false, message: 'Invalid URL format' });
+    // Full SSRF check, not just URL shape: the server dials this address from
+    // inside the network, so a private or metadata target must be refused here
+    // rather than discovered at delivery time.
+    try {
+      await assertSafeOutboundUrl(url);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: e.message });
     }
 
     const secret = crypto.randomBytes(24).toString('hex');
@@ -200,7 +206,14 @@ router.put('/:id', async (req, res) => {
     const updates = [];
     const vals = [];
     if (name)        { updates.push('name = ?');        vals.push(name.trim()); }
-    if (url)         { updates.push('url = ?');          vals.push(url.trim()); }
+    if (url) {
+      try {
+        await assertSafeOutboundUrl(url);
+      } catch (e) {
+        return res.status(400).json({ success: false, message: e.message });
+      }
+      updates.push('url = ?'); vals.push(url.trim());
+    }
     if (events)      { updates.push('events = ?');       vals.push(JSON.stringify(events)); }
     if (description !== undefined) { updates.push('description = ?'); vals.push(description); }
     if (headers !== undefined)     { updates.push('headers = ?');     vals.push(JSON.stringify(headers)); }
@@ -339,11 +352,17 @@ export async function deliverWebhook({ endpoint, event, payload, workshopId, del
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
+    // Re-checked at delivery, not only at creation: DNS can change under a
+    // hostname that was public when the endpoint was saved.
+    await assertSafeOutboundUrl(endpoint.url);
+
     const resp = await fetch(endpoint.url, {
       method: 'POST',
       headers,
       body,
       signal: controller.signal,
+      // A 302 to a private address would walk straight past the check above.
+      redirect: 'manual',
     });
     clearTimeout(timeout);
 

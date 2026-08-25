@@ -21,6 +21,7 @@ import { query, execute } from '../lib/database.js';
 import { generateToken, authMiddleware } from '../middleware/auth.js';
 import { sendNotificationEmail } from '../lib/email.js';
 import { config } from '../config.js';
+import { loginLimiter, passwordResetLimiter, registrationLimiter } from '../lib/rate-limits.js';
 
 const router = express.Router();
 
@@ -84,7 +85,7 @@ async function resolveWorkshop(slug) {
 /* ══════════════════════════════════════════════════════════════
  * POST /register — Customer self-registration
  * ══════════════════════════════════════════════════════════════ */
-router.post('/register', async (req, res) => {
+router.post('/register', registrationLimiter, async (req, res) => {
   try {
     const {
       full_name, company_name, email, phone, password,
@@ -209,7 +210,7 @@ router.post('/register', async (req, res) => {
 /* ══════════════════════════════════════════════════════════════
  * POST /verify-email — Verify email with token
  * ══════════════════════════════════════════════════════════════ */
-router.post('/verify-email', async (req, res) => {
+router.post('/verify-email', passwordResetLimiter, async (req, res) => {
   try {
     const { token } = req.body;
     if (!token) return res.status(400).json({ success: false, message: 'Verification token required' });
@@ -237,7 +238,7 @@ router.post('/verify-email', async (req, res) => {
 /* ══════════════════════════════════════════════════════════════
  * POST /login — Customer login
  * ══════════════════════════════════════════════════════════════ */
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password, workshop_slug } = req.body;
     if (!email || !password) {
@@ -353,7 +354,7 @@ router.post('/login', async (req, res) => {
 /* ══════════════════════════════════════════════════════════════
  * POST /forgot-password — Send reset email
  * ══════════════════════════════════════════════════════════════ */
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ success: false, message: 'Email required' });
@@ -404,7 +405,7 @@ router.post('/forgot-password', async (req, res) => {
 /* ══════════════════════════════════════════════════════════════
  * POST /reset-password — Set new password via token
  * ══════════════════════════════════════════════════════════════ */
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', passwordResetLimiter, async (req, res) => {
   try {
     const { token, new_password } = req.body;
     if (!token || !new_password) {

@@ -28,7 +28,7 @@ function makeStorage(subfolder) {
     destination: (_req, _file, cb) => cb(null, path.join(UPLOADS_DIR, subfolder)),
     filename: (_req, file, cb) => {
       const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+      cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`);
     },
   });
 }

@@ -12,6 +12,7 @@ import crypto from 'crypto';
 import { query, execute } from '../lib/database.js';
 import { sendEmail, buildEmailTemplate, getWorkshopBranding, getLogoCidAttachment } from '../lib/email.js';
 import { config } from '../config.js';
+import { provisioningLimiter, registrationLimiter } from '../lib/rate-limits.js';
 
 const router = Router();
 
@@ -79,7 +80,7 @@ router.get('/pricing', async (_req, res) => {
 /* ═══════════════════════════════════════════
    POST /contact — Contact form submission
    ═══════════════════════════════════════════ */
-router.post('/contact', async (req, res) => {
+router.post('/contact', provisioningLimiter, async (req, res) => {
   try {
     const { firstName, lastName, email, subject, message, phone } = req.body;
     const normalizedEmail = String(email || '').trim();
@@ -147,7 +148,7 @@ router.post('/contact', async (req, res) => {
    POST /start-trial — Free trial signup
    Auto-provisions: Workshop → Admin User → Subscription → Welcome Email
    ═══════════════════════════════════════════ */
-router.post('/start-trial', async (req, res) => {
+router.post('/start-trial', provisioningLimiter, async (req, res) => {
   try {
     const { firstName, lastName, email, companyName, phone, planSlug, estimatedDeliveries, password } = req.body;
 
@@ -390,7 +391,7 @@ async function sendContactConfirmationEmail({ firstName, lastName, email, subjec
    Creates: Workshop → Admin User → Subscription → Verification Token
    Sends: Verification email only (welcome email sent after verification)
    ═══════════════════════════════════════════════════════════════ */
-router.post('/signup', async (req, res) => {
+router.post('/signup', registrationLimiter, async (req, res) => {
   try {
     const {
       // Step 1 — Company Info
@@ -654,7 +655,7 @@ router.get('/verify-email', async (req, res) => {
 /* ═══════════════════════════════════════════════════════════════
    POST /resend-verification — Resend verification email
    ═══════════════════════════════════════════════════════════════ */
-router.post('/resend-verification', async (req, res) => {
+router.post('/resend-verification', provisioningLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     if (!email?.trim()) {

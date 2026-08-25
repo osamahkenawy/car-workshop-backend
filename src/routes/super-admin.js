@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { query, execute } from '../lib/database.js';
 import { config } from '../config.js';
 import { sendNotificationEmail, sendEmail, getLogoCidAttachment, buildEmailTemplate, getWorkshopBranding } from '../lib/email.js';
+import { superAdminLoginLimiter } from '../lib/rate-limits.js';
 
 const router = express.Router();
 
@@ -47,7 +48,7 @@ const verifySuperAdmin = async (req, res, next) => {
 };
 
 // Super Admin Login
-router.post('/login', async (req, res) => {
+router.post('/login', superAdminLoginLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
 

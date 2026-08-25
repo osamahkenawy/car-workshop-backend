@@ -76,12 +76,64 @@ import jobCardsRouter from './routes/job-cards.js';
 import inventoryRouter from './routes/inventory.js';
 import subletRouter, { proformaRouter, gatePassRouter } from './routes/sublet.js';
 import { vatRouter, evhcRouter, groupIntegrationRouter } from './routes/vat-evhc-integration.js';
+import helmet from 'helmet';
 
 const app = express();
 const httpServer = http.createServer(app);
 
 app.set('trust proxy', 1);
-app.use(cors({ origin: config.frontendUrl === '*' ? true : [config.frontendUrl, 'http://localhost:3000'], credentials: true }));
+
+// ── Security headers ─────────────────────────────────────────────────────
+// The app previously sent none of these; nginx supplied only X-Frame-Options
+// and nosniff.
+//
+// script-src is enforced at 'self' — that is the header that actually blunts
+// injected <script>, which is the payload that matters for stored XSS. Styles
+// keep 'unsafe-inline' because the UI is built almost entirely with React
+// inline style props, and CSP governs style attributes; enforcing style-src
+// would blank the product. img-src allows data: and https: for map tiles and
+// avatars, and connect-src covers the API plus the websocket.
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      'default-src':     ["'self'"],
+      'script-src':      ["'self'"],
+      'style-src':       ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://unpkg.com'],
+      'font-src':        ["'self'", 'data:', 'https://fonts.gstatic.com'],
+      'img-src':         ["'self'", 'data:', 'blob:', 'https:'],
+      'connect-src':     ["'self'", 'https:', 'wss:'],
+      'frame-ancestors': ["'none'"],
+      'object-src':      ["'none'"],
+      'base-uri':        ["'self'"],
+      'form-action':     ["'self'"],
+      'upgrade-insecure-requests': [],
+    },
+  },
+  // Six months, subdomains included. Only meaningful over TLS, which the
+  // production hostname already serves.
+  hsts: { maxAge: 15552000, includeSubDomains: true, preload: false },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  // Uploaded images are served from this origin and embedded by the SPA.
+  crossOriginResourcePolicy: { policy: 'same-site' },
+  // Would break the Stripe redirect flow and popup-based auth.
+  crossOriginOpenerPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+
+// Not covered by helmet's defaults.
+app.use((_req, res, next) => {
+  res.setHeader('Permissions-Policy', 'geolocation=(self), camera=(), microphone=(), payment=()');
+  next();
+});
+// Dev origins are allowed only outside production; shipping localhost in the
+// production allow-list lets a developer's machine drive authenticated,
+// credentialed requests against live data.
+const DEV_ORIGINS = ['http://localhost:3000', 'http://localhost:5173'];
+const corsOrigins = config.env === 'production'
+  ? [config.frontendUrl]
+  : [config.frontendUrl, ...DEV_ORIGINS];
+app.use(cors({ origin: config.frontendUrl === '*' ? true : corsOrigins, credentials: true }));
 
 // ── Stripe webhook MUST be mounted before the global JSON body parser,
 //    because it needs the raw request body (express.raw()) to verify the
@@ -101,10 +153,17 @@ app.get('/health', (req, res) => {
 });
 
 // ── Swagger UI ───────────────────────────────────────────────────────────
+// Interactive documentation of every endpoint is a reconnaissance aid; it is
+// off in production unless deliberately enabled.
+const docsEnabled = config.env !== 'production' || process.env.ENABLE_API_DOCS === 'true';
+if (docsEnabled) {
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
   customSiteTitle: 'Car Workshop API Docs',
   swaggerOptions: { persistAuthorization: true },
 }));
+} else {
+  app.use('/api/docs', (_req, res) => res.status(404).json({ success: false, message: 'Not found' }));
+}
 
 // ── Core platform ───────────────────────────────────────────────────────
 app.use('/api/auth', authRouter);
