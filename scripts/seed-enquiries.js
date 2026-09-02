@@ -144,9 +144,13 @@ const mysqlDate = d =>
 
 /** A plausible enquiry time: business hours, Saturday-Thursday weighted. */
 function timeOnDay(daysAgo) {
-  const d = new Date();
+  const now = new Date();
+  const d = new Date(now);
   d.setDate(d.getDate() - daysAgo);
   d.setHours(rint(8, 19), rint(0, 59), rint(0, 59), 0);
+  // Today's enquiries must not be stamped later than right now - a created_at
+  // in the future is visibly wrong on the page and skews "today" counts.
+  if (d > now) d.setTime(now.getTime() - rint(1, 90) * 60000);
   return d;
 }
 
