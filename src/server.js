@@ -66,6 +66,11 @@ import publicApiRouter from './routes/public-api.js';
 import { publicSurveyRouter, adminSurveyRouter } from './routes/customer-survey.js';
 import { publicCareersRouter, adminCareersRouter } from './routes/careers.js';
 import { legalPublicRouter, legalAdminRouter } from './routes/legal-pages.js';
+// CRM phase 1
+import crmCustomersRouter from './routes/crm-customers.js';
+import crmTasksRouter from './routes/crm-tasks.js';
+import crmRemindersRouter from './routes/crm-reminders.js';
+import { startReminderCron } from './lib/reminder-cron.js';
 import superAdminRouter from './routes/super-admin.js';
 import superAdminEnhancedRouter from './routes/super-admin-enhanced.js';
 
@@ -233,6 +238,13 @@ app.use('/api/customer-survey', adminSurveyRouter);
 // ── Marketing / content pages (each file exposes a public + admin router) ─
 app.use('/api/careers', publicCareersRouter);
 app.use('/api/admin/careers', adminCareersRouter);
+// ── CRM phase 1 ──────────────────────────────────────────────
+// Mounted under /api/crm so the module namespace matches the sidebar group and
+// the per-tenant module keys.
+app.use('/api/crm/customers', crmCustomersRouter);
+app.use('/api/crm/tasks', crmTasksRouter);
+app.use('/api/crm/reminders', crmRemindersRouter);
+
 app.use('/api/legal-pages', legalPublicRouter);
 app.use('/api/admin/legal-pages', legalAdminRouter);
 
@@ -291,6 +303,7 @@ if (process.env.DISABLE_CRON_JOBS !== 'true') {
   try { startDataRetention(); } catch (e) { console.error('startDataRetention failed:', e.message); }
   try { startTrialEnforcer(); } catch (e) { console.error('startTrialEnforcer failed:', e.message); }
   try { startScheduledReports(); } catch (e) { console.error('startScheduledReports failed:', e.message); }
+  try { startReminderCron(); } catch (e) { console.error('startReminderCron failed:', e.message); }
 
   // ensurePushTable() creates push_subscriptions and user_notifications. It was
   // exported but never called, so on every deployment the in-app notification
