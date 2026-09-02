@@ -142,6 +142,38 @@ const mysqlDate = d =>
   `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
   `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 
+/**
+ * Insert a row whose reference number must be unique, retrying on collision.
+ *
+ * enquiry_number and work_order_number are both unique-indexed, and the app's
+ * format gives only 9000 suffixes per day (WO-YYYYMMDD-NNNN). Seeding two
+ * months of history draws enough numbers that a duplicate is roughly a coin
+ * flip, and on an install with existing history it is likelier still - which
+ * aborted a staging run partway through, after --clean had already emptied the
+ * table. Generating a number and hoping is not good enough.
+ *
+ * @param sql          the INSERT, with the number as one of its placeholders
+ * @param params       parameter array; the slot at numberIndex is replaced
+ * @param numberIndex  which parameter holds the reference number
+ * @param makeNumber   called per attempt; returns a fresh candidate
+ */
+async function insertUnique(sql, params, numberIndex, makeNumber, attempts = 30) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    const p = params.slice();
+    // Widen the suffix once simple retries start failing, so a crowded day
+    // cannot deadlock the run.
+    p[numberIndex] = makeNumber(i >= 20);
+    try {
+      return await execute(sql, p);
+    } catch (e) {
+      if (e.code !== 'ER_DUP_ENTRY') throw e;
+      lastErr = e;
+    }
+  }
+  throw new Error(`could not allocate a unique number after ${attempts} attempts: ${lastErr?.message}`);
+}
+
 /** A plausible enquiry time: business hours, Saturday-Thursday weighted. */
 function timeOnDay(daysAgo) {
   const now = new Date();
@@ -256,9 +288,12 @@ async function seed(workshopId) {
         customerId = c.insertId;
       }
 
-      const enqNumber = `ENQ-${mysqlDate(createdAt).slice(0, 10).replace(/-/g, '')}-${rint(1000, 9999)}`;
+      const enqDay = mysqlDate(createdAt).slice(0, 10).replace(/-/g, '');
+      const makeEnqNumber = wide =>
+        `ENQ-${enqDay}-${wide ? rint(100000, 999999) : rint(1000, 9999)}`;
+      let enqNumber = makeEnqNumber(false);
 
-      const enq = await execute(
+      const enq = await insertUnique(
         `INSERT INTO enquiries
            (workshop_id, enquiry_number, external_reference, customer_id,
             contact_name, contact_phone, contact_email,
@@ -287,13 +322,17 @@ async function seed(workshopId) {
           Math.random() < 0.5 ? 'api' : 'internal',
           JSON.stringify({ seeded: true, tag: SEED_TAG }),
           mysqlDate(createdAt), mysqlDate(createdAt),
-        ]
+        ],
+        1, makeEnqNumber
       );
 
       // Conversion mirrors routes/enquiries.js: a real work order, linked both ways.
       if (status === 'converted') {
-        const woNumber = `WO-${mysqlDate(convertedAt).slice(0, 10).replace(/-/g, '')}-${rint(1000, 9999)}`;
-        const wo = await execute(
+        const woDay = mysqlDate(convertedAt).slice(0, 10).replace(/-/g, '');
+        const makeWoNumber = wide =>
+          `WO-${woDay}-${wide ? rint(100000, 999999) : rint(1000, 9999)}`;
+        const woNumber = makeWoNumber(false);
+        const wo = await insertUnique(
           `INSERT INTO work_orders
              (workshop_id, work_order_number, customer_id, customer_name, customer_phone,
               customer_email, description, service_category, work_order_type,
@@ -305,7 +344,8 @@ async function seed(workshopId) {
             svc.tier, payer, enq.insertId, quoted,
             daysAgo > 3 ? 'completed' : pick(['pending', 'assigned', 'in_progress']),
             mysqlDate(convertedAt), mysqlDate(convertedAt),
-          ]
+          ],
+          1, makeWoNumber
         );
         await execute(
           'UPDATE enquiries SET converted_work_order_id = ?, converted_at = ? WHERE id = ?',

@@ -159,8 +159,14 @@ const NURTURE_NOTES = [
   for (const e of broken) {
     const when = new Date(e.created_at);
     when.setHours(when.getHours() + rint(1, 30));
-    const woNumber = `WO-${mysqlDate(when).slice(0, 10).replace(/-/g, '')}-${rint(1000, 9999)}`;
-    const wo = await execute(
+    // Same collision risk as the main seeder; retry rather than abort.
+    const woDay = mysqlDate(when).slice(0, 10).replace(/-/g, '');
+    let woNumber = `WO-${woDay}-${rint(1000, 9999)}`;
+    let wo = null;
+    for (let attempt = 0; attempt < 30 && !wo; attempt++) {
+      woNumber = `WO-${woDay}-${attempt >= 20 ? rint(100000, 999999) : rint(1000, 9999)}`;
+      try {
+        wo = await execute(
       `INSERT INTO work_orders
          (workshop_id, work_order_number, customer_id, customer_name, customer_phone,
           customer_email, description, work_order_type, service_tier, payer_type,
@@ -170,7 +176,12 @@ const NURTURE_NOTES = [
        e.contact_email, `${e.service_requested || 'Service'} — ${e.vehicle_description || ''}`.trim(),
        e.service_tier, e.payer_type || 'self_pay', e.id, e.quoted_amount || 0,
        mysqlDate(when), mysqlDate(when)]
-    );
+        );
+      } catch (e) {
+        if (e.code !== 'ER_DUP_ENTRY') throw e;
+      }
+    }
+    if (!wo) { console.warn(`  could not allocate a work order number for enquiry ${e.id}, skipped`); continue; }
     await execute(
       'UPDATE enquiries SET converted_work_order_id = ?, converted_at = ? WHERE id = ?',
       [wo.insertId, mysqlDate(when), e.id]
