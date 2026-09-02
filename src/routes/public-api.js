@@ -5,6 +5,7 @@
  * GET  /api/public/pricing      — Active plans for landing page pricing section
  * POST /api/public/contact      — Contact form submission
  * POST /api/public/start-trial  — Free trial signup (auto-provisions workshop)
+ * POST /api/public/enquiries    — Website contact/quote form (no API key)
  */
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
@@ -12,7 +13,8 @@ import crypto from 'crypto';
 import { query, execute } from '../lib/database.js';
 import { sendEmail, buildEmailTemplate, getWorkshopBranding, getLogoCidAttachment } from '../lib/email.js';
 import { config } from '../config.js';
-import { provisioningLimiter, registrationLimiter } from '../lib/rate-limits.js';
+import { provisioningLimiter, registrationLimiter, publicEnquiryLimiter } from '../lib/rate-limits.js';
+import { stripMarkup, clampText } from '../lib/sanitize.js';
 
 const router = Router();
 
@@ -742,6 +744,178 @@ router.post('/check-availability', async (req, res) => {
     res.status(500).json({ success: false, message: 'Availability check failed.' });
   }
 });
+
+
+/* ===========================================
+   POST /enquiries - public website contact + quote form
+
+   Deliberately unauthenticated. The form posts straight from the browser on
+   pioneeruae.com, so it cannot hold a secret: an API key shipped in that
+   bundle would be readable by every visitor and would authenticate nothing.
+   /api/v1/enquiries keeps its key for server-to-server callers.
+
+   Three controls stand in for the key:
+     - a hard rate limit per IP (publicEnquiryLimiter, 10/hour)
+     - an Origin allow-list (config.publicWebOrigins)
+     - a honeypot field, accepted and silently discarded
+   None is proof against a determined attacker forging headers with curl - an
+   open endpoint cannot be. Together they stop drive-by and scripted abuse,
+   which is what actually fills a sales inbox. Put a CAPTCHA in front of the
+   form if spam ever gets through.
+
+   Accepts the flat shape the website already sends
+     { customerName, email, phone, service, notes, website, source }
+   as well as the nested { customer: { name, phone, email } } shape, so the
+   site only has to change the URL it posts to.
+   =========================================== */
+
+// CORS for this route is mounted in server.js, ahead of the global cors()
+// middleware - that one answers preflights itself and ends the request, so a
+// router-level allow-list here never ran. Two cors() layers would also set
+// Access-Control-Allow-Origin twice, which browsers reject outright.
+router.post('/enquiries', publicEnquiryLimiter, async (req, res) => {
+  try {
+    const b = req.body || {};
+
+    // Honeypot: a real browser leaves this empty because the field is hidden.
+    // Answer 201 so a bot records success and does not retry another way.
+    if (typeof b.website === 'string' && b.website.trim() !== '') {
+      return res.status(201).json({ success: true, message: 'Enquiry received' });
+    }
+
+    // Only enforce origin when the caller sent one. Browsers always do;
+    // server-side callers do not, and those should use /api/v1/enquiries.
+    const origin = req.get('origin');
+    if (origin && !config.publicWebOrigins.includes(origin)) {
+      return res.status(403).json({ success: false, message: 'This origin is not allowed to submit enquiries' });
+    }
+
+    const nested = b.customer || {};
+    const name  = b.customerName != null ? b.customerName : nested.name;
+    const email = b.email        != null ? b.email        : nested.email;
+    const phone = b.phone        != null ? b.phone        : nested.phone;
+    const { service, notes, message, branch, preferredDate, source, reference } = b;
+    const vehicle = b.vehicle || {};
+    const note = notes != null ? notes : message;
+
+    const blank = v => v === undefined || v === null || String(v).trim() === '';
+
+    const errors = [];
+    if (blank(name)) errors.push({ field: 'customerName', message: 'Your name is required' });
+    if (blank(phone) && blank(email)) {
+      errors.push({ field: 'email', message: 'Give us a phone number or an email address so we can reply' });
+    }
+    if (!blank(email) && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email).trim())) {
+      errors.push({ field: 'email', message: 'That email address does not look right' });
+    }
+    if (!blank(phone) && !/^\+?[\d\s\-()]{7,20}$/.test(String(phone).trim())) {
+      errors.push({ field: 'phone', message: 'That phone number does not look right' });
+    }
+    if (!blank(preferredDate) && !/^\d{4}-\d{2}-\d{2}$/.test(String(preferredDate).trim())) {
+      errors.push({ field: 'preferredDate', message: 'Use the format YYYY-MM-DD' });
+    }
+    if (errors.length) {
+      return res.status(422).json({ success: false, message: 'Please check the form', errors });
+    }
+
+    // Which workshop receives website leads.
+    const [ws] = await query('SELECT id FROM workshops ORDER BY id ASC LIMIT 1');
+    if (!ws) return res.status(503).json({ success: false, message: 'Enquiries are not available right now' });
+    const workshopId = ws.id;
+
+    const extRef = blank(reference) ? null : String(reference).trim();
+    if (extRef) {
+      const [dupe] = await query(
+        'SELECT id, enquiry_number FROM enquiries WHERE workshop_id = ? AND external_reference = ?',
+        [workshopId, extRef]
+      );
+      if (dupe) {
+        return res.status(200).json({
+          success: true, duplicate: true, message: 'Enquiry received',
+          data: { enquiryNumber: dupe.enquiry_number, reference: extRef },
+        });
+      }
+    }
+
+    const d = new Date();
+    const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const enquiryNumber = `ENQ-${stamp}-${Math.floor(Math.random() * 9000) + 1000}`;
+
+    const vehicleDescription = [vehicle.make, vehicle.model, vehicle.year]
+      .filter(v => !blank(v)).map(v => String(v).trim()).join(' ') || null;
+
+    const cleanPhone = blank(phone) ? null : stripMarkup(String(phone).trim(), 32);
+    const cleanEmail = blank(email) ? null : stripMarkup(String(email).trim(), 190);
+
+    // Attach to an existing customer when we recognise them.
+    let known = null;
+    if (cleanPhone) {
+      [known] = await query('SELECT id FROM customers WHERE workshop_id = ? AND phone = ? LIMIT 1', [workshopId, cleanPhone]);
+    }
+    if (!known && cleanEmail) {
+      [known] = await query('SELECT id FROM customers WHERE workshop_id = ? AND email = ? LIMIT 1', [workshopId, cleanEmail]);
+    }
+
+    const result = await execute(
+      `INSERT INTO enquiries
+         (workshop_id, enquiry_number, external_reference, customer_id,
+          contact_name, contact_phone, contact_email,
+          vehicle_description, vehicle_plate,
+          enquiry_type, description,
+          source_channel, source_detail, contact_method,
+          branch, service_requested, preferred_date,
+          intake_origin, raw_payload, status, created_by)
+       -- intake_origin is enum('internal','api'); this arrives over the API.
+       -- source_detail plus contact_method='website_form' identify it as the
+       -- public form rather than a keyed server-to-server caller.
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'api', ?, 'new', NULL)`,
+      [
+        workshopId, enquiryNumber, extRef, known ? known.id : null,
+        stripMarkup(String(name).trim()), cleanPhone, cleanEmail,
+        stripMarkup(vehicleDescription, 255),
+        blank(vehicle.plateNumber) ? null : stripMarkup(String(vehicle.plateNumber).trim(), 64),
+        mapEnquiryType(service),
+        blank(note) ? null : clampText(String(note).trim()),
+        mapSourceChannel(source),
+        blank(source) ? null : stripMarkup(String(source).trim(), 120),
+        'website_form',
+        blank(branch) ? null : stripMarkup(String(branch).trim(), 120),
+        blank(service) ? null : stripMarkup(String(service).trim(), 190),
+        blank(preferredDate) ? null : String(preferredDate).trim(),
+        JSON.stringify(b),
+      ]
+    );
+
+    return res.status(201).json({
+      success: true,
+      duplicate: false,
+      message: 'Thanks, we have your enquiry and will be in touch shortly.',
+      data: { enquiryNumber, reference: extRef, id: result.insertId },
+    });
+  } catch (err) {
+    console.error('[PublicEnquiry] error:', err.message);
+    return res.status(500).json({ success: false, message: 'Could not submit your enquiry. Please try again.' });
+  }
+});
+
+/** Map the website service label onto the enquiry_type enum. */
+function mapEnquiryType(service) {
+  const t = String(service || '').toLowerCase();
+  if (/diagnos/.test(t)) return 'diagnostic';
+  if (/body|paint|dent/.test(t)) return 'bodywork';
+  if (/accident|collision|crash/.test(t)) return 'accident';
+  if (/repair|mechanic|engine|brake|transmis|tyre|tire/.test(t)) return 'repair';
+  return 'service';
+}
+
+/** Map the campaign/source label onto the source_channel enum. */
+function mapSourceChannel(source) {
+  const t = String(source || '').toLowerCase();
+  if (/referr|friend|word/.test(t)) return 'owned_repeat';
+  if (/insur|partner|fleet|corporate|dealer|recovery/.test(t)) return 'partner_referred';
+  if (/walk|passing|signage|drive/.test(t)) return 'passing_local';
+  return 'search_discovery';
+}
 
 export default router;
 

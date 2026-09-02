@@ -148,3 +148,25 @@ export const publicTrackingLimiter = rateLimit({
   keyGenerator: (req) => req.ip,
   handler,
 });
+
+/**
+ * The public website enquiry form. This endpoint takes no API key — a form that
+ * posts from the browser cannot hold a secret, so a key there would be a public
+ * string and buy nothing. Rate limiting is therefore the primary control rather
+ * than a secondary one, and it is tighter than it would otherwise be.
+ *
+ * Keyed by IP only: every field in the body is attacker-chosen, so keying on
+ * any of them would hand each submission its own fresh bucket.
+ *
+ * 10 per hour is far above what a real visitor needs (a person submits once,
+ * occasionally twice after a typo) and far below what filling a sales inbox
+ * requires.
+ */
+export const publicEnquiryLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
+  handler,
+});

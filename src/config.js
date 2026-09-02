@@ -14,6 +14,12 @@ export const config = {
   // Public URLs
   backendUrl: process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 4000}`,
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+  // Origins allowed to POST the public website enquiry form from a browser.
+  // Comma-separated. This endpoint takes no API key, so the origin allow-list
+  // and the rate limit are what stand in for one.
+  publicWebOrigins: (process.env.PUBLIC_WEB_ORIGINS ||
+    'https://pioneeruae.com,https://www.pioneeruae.com')
+    .split(',').map(s => s.trim()).filter(Boolean),
   baseUrl: process.env.BASE_URL || process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 4000}`,
 
   db: {

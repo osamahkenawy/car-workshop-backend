@@ -134,6 +134,17 @@ const DEV_ORIGINS = ['http://localhost:3000', 'http://localhost:5173'];
 const corsOrigins = config.env === 'production'
   ? [config.frontendUrl]
   : [config.frontendUrl, ...DEV_ORIGINS];
+// The marketing site posts the public enquiry form straight from a browser, so
+// that one path needs its own origin allow-list. It MUST be mounted before the
+// global cors() below: that middleware answers preflight requests itself and
+// ends them, so anything mounted later never sees an OPTIONS and the browser
+// gets no Access-Control-Allow-Origin.
+app.use('/api/public/enquiries', cors({
+  origin: (origin, cb) => cb(null, !origin || config.publicWebOrigins.includes(origin)),
+  methods: ['POST', 'OPTIONS'],
+  credentials: false,
+}));
+
 app.use(cors({ origin: config.frontendUrl === '*' ? true : corsOrigins, credentials: true }));
 
 // ── Stripe webhook MUST be mounted before the global JSON body parser,
