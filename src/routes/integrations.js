@@ -67,12 +67,33 @@ router.post('/', async (req, res) => {
     const { name, description, permissions = 'read', expires_at } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ success: false, message: 'Name required' });
 
-    const api_key = 'td_' + crypto.randomBytes(24).toString('hex');
+    // 'td_' was the old Traseallo prefix; config.js and the API docs both say
+    // cw_. Keys are stored hashed, so changing the generator does not
+    // invalidate any key already issued.
+    const api_key = 'cw_' + crypto.randomBytes(24).toString('hex');
     const api_key_hash = crypto.createHash('sha256').update(api_key).digest('hex');
     const key_prefix = api_key.slice(0, 10) + '…' + api_key.slice(-4);
 
     // Expand permission shorthand to array for consistent storage
-    const PERM_EXPAND = { read: ['work_orders:read','service_status:read'], write: ['work_orders:read','work_orders:write','service_status:read'], full: ['work_orders:read','work_orders:write','service_status:read','service_status:write','customers:read','customers:write','mechanics:read','webhooks:manage'] };
+    // The enquiries scopes were missing entirely, so a key created here — even
+    // at 'full' — got a 403 from POST /api/v1/enquiries, which is the endpoint
+    // a website contact form needs. requireApiPermission does an exact string
+    // match, so the scope has to be listed verbatim.
+    const PERM_EXPAND = {
+      read: [
+        'work_orders:read', 'service_status:read', 'enquiries:read',
+      ],
+      write: [
+        'work_orders:read', 'work_orders:write', 'service_status:read',
+        'enquiries:read', 'enquiries:write',
+      ],
+      full: [
+        'work_orders:read', 'work_orders:write', 'service_status:read',
+        'service_status:write', 'customers:read', 'customers:write',
+        'mechanics:read', 'webhooks:manage',
+        'enquiries:read', 'enquiries:write',
+      ],
+    };
     const permArray = PERM_EXPAND[permissions] || PERM_EXPAND.read;
 
     const result = await execute(
@@ -146,7 +167,10 @@ router.post('/:id/regenerate', async (req, res) => {
     const [existing] = await query('SELECT id FROM api_keys WHERE id = ? AND workshop_id = ?', [req.params.id, req.workshopId]);
     if (!existing) return res.status(404).json({ success: false, message: 'API key not found' });
 
-    const api_key = 'td_' + crypto.randomBytes(24).toString('hex');
+    // 'td_' was the old Traseallo prefix; config.js and the API docs both say
+    // cw_. Keys are stored hashed, so changing the generator does not
+    // invalidate any key already issued.
+    const api_key = 'cw_' + crypto.randomBytes(24).toString('hex');
     const api_key_hash = crypto.createHash('sha256').update(api_key).digest('hex');
     const key_prefix = api_key.slice(0, 10) + '…' + api_key.slice(-4);
 

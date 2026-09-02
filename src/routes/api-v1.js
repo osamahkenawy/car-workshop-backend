@@ -73,8 +73,18 @@ router.post('/enquiries', requireApiPermission('enquiries:write'), async (req, r
 
     // ── Validation ────────────────────────────────────────────
     const errors = [];
-    if (isBlank(customer.name))  errors.push({ field: 'customer.name',  message: 'Customer name is required' });
-    if (isBlank(customer.phone)) errors.push({ field: 'customer.phone', message: 'Customer phone is required' });
+    if (isBlank(customer.name)) errors.push({ field: 'customer.name', message: 'Customer name is required' });
+
+    // A contact route is required, but either one will do. Phone used to be
+    // mandatory, which the website's own "Send Message" form cannot satisfy —
+    // it collects name, email, service and message, with no phone field. An
+    // enquiry with an email and no phone is still a lead worth capturing.
+    if (isBlank(customer.phone) && isBlank(customer.email)) {
+      errors.push({
+        field: 'customer.phone',
+        message: 'Provide customer.phone or customer.email so the enquiry can be followed up',
+      });
+    }
 
     if (!isBlank(customer.phone) && !/^\+?[\d\s\-()]{7,20}$/.test(String(customer.phone).trim())) {
       errors.push({ field: 'customer.phone', message: 'Phone number format is invalid' });
@@ -124,13 +134,26 @@ router.post('/enquiries', requireApiPermission('enquiries:write'), async (req, r
     const vehicleDescription = [vehicle.make, vehicle.model, vehicle.year]
       .filter(v => !isBlank(v)).map(v => String(v).trim()).join(' ') || null;
 
-    // Reuse an existing customer when the phone already matches, so repeat
-    // website leads attach to the record they belong to.
-    const phone = String(customer.phone).trim();
-    const [known] = await query(
-      'SELECT id FROM customers WHERE workshop_id = ? AND phone = ? LIMIT 1',
-      [req.workshopId, phone]
-    );
+    // Reuse an existing customer when we can recognise them, so repeat website
+    // leads attach to the record they belong to. Phone is the stronger match;
+    // fall back to email for form submissions that carry no phone.
+    // `phone` must stay null rather than the string "undefined" when absent.
+    const phone = isBlank(customer.phone) ? null : String(customer.phone).trim();
+    const email = isBlank(customer.email) ? null : String(customer.email).trim();
+
+    let known = null;
+    if (phone) {
+      [known] = await query(
+        'SELECT id FROM customers WHERE workshop_id = ? AND phone = ? LIMIT 1',
+        [req.workshopId, phone]
+      );
+    }
+    if (!known && email) {
+      [known] = await query(
+        'SELECT id FROM customers WHERE workshop_id = ? AND email = ? LIMIT 1',
+        [req.workshopId, email]
+      );
+    }
 
     // SR-01/SR-16 — this endpoint is public (API-key only) and the payload
     // comes from a website form, so identity fields have markup stripped before
@@ -147,8 +170,9 @@ router.post('/enquiries', requireApiPermission('enquiries:write'), async (req, r
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'api', ?, 'new', NULL)`,
       [
         req.workshopId, enquiryNumber, extRef, known ? known.id : null,
-        stripMarkup(String(customer.name).trim()), phone,
-        isBlank(customer.email) ? null : stripMarkup(String(customer.email).trim()),
+        stripMarkup(String(customer.name).trim()),
+        phone ? stripMarkup(phone, 32) : null,
+        email ? stripMarkup(email, 190) : null,
         stripMarkup(vehicleDescription, 255),
         isBlank(vehicle.plateNumber) ? null : stripMarkup(String(vehicle.plateNumber).trim(), 64),
         mapEnquiryType(service),
