@@ -36,15 +36,46 @@ const WORKSHOP = num('--workshop', 0);
 
 /* ── Source material ───────────────────────────────────────────────────── */
 
-const FIRST = ['Ahmed', 'Mohammed', 'Fatima', 'Aisha', 'Omar', 'Khalid', 'Noura', 'Yousef',
-  'Mariam', 'Hassan', 'Layla', 'Rashid', 'Sara', 'Ali', 'Huda', 'Saeed', 'Amina', 'Tariq',
-  'Salma', 'Faisal', 'Reem', 'Majid', 'Hind', 'Nasser', 'Latifa', 'Sultan', 'Shaikha',
-  'Abdullah', 'Moza', 'Hamdan', 'Priya', 'Rajesh', 'Anil', 'Deepa', 'John', 'Michael',
-  'Sarah', 'Emily', 'David', 'Maria'];
-
-const LAST = ['Al Maktoum', 'Al Suwaidi', 'Al Nuaimi', 'Al Qasimi', 'Al Falasi', 'Al Marri',
-  'Al Shamsi', 'Al Mansoori', 'Ibrahim', 'Haddad', 'Khan', 'Sharma', 'Nair', 'Menon',
-  'Fernandes', 'Smith', 'Garcia', 'Ahmed', 'Saeed', 'Rahman'];
+/**
+ * Customer names, drawn from the communities that actually make up the
+ * workshop's customer base. Grouped by origin and paired within a group:
+ * picking a first and last name from separate flat lists produced people like
+ * "Priya Smith" and "Anil Al Maktoum", which reads as obviously generated.
+ */
+const NAME_POOLS = [
+  {
+    origin: 'indian',
+    weight: 45,
+    first: ['Rajesh', 'Anil', 'Priya', 'Deepa', 'Suresh', 'Ramesh', 'Vijay', 'Sunil',
+      'Manoj', 'Arun', 'Kavita', 'Meena', 'Lakshmi', 'Ravi', 'Sanjay', 'Nitin',
+      'Rahul', 'Anita', 'Neha', 'Pooja', 'Vinod', 'Prakash', 'Ganesh', 'Mukesh',
+      'Shalini', 'Divya', 'Sandeep', 'Ajay', 'Kiran', 'Rekha', 'Harish', 'Jyoti'],
+    last: ['Sharma', 'Nair', 'Menon', 'Patel', 'Kumar', 'Singh', 'Reddy', 'Iyer',
+      'Pillai', 'Rao', 'Desai', 'Joshi', 'Gupta', 'Verma', 'Chopra', 'Malhotra',
+      'Bhat', 'Shetty', 'Naidu', 'Krishnan', 'Thomas', 'Varghese'],
+  },
+  {
+    origin: 'egyptian',
+    weight: 30,
+    first: ['Ahmed', 'Mohamed', 'Mahmoud', 'Mostafa', 'Hossam', 'Tarek', 'Amr',
+      'Sherif', 'Khaled', 'Yasser', 'Hany', 'Wael', 'Ayman', 'Nourhan', 'Mona',
+      'Heba', 'Dalia', 'Rania', 'Yasmin', 'Shaimaa', 'Amira', 'Nadia', 'Ehab',
+      'Ashraf', 'Sameh', 'Magdy', 'Islam', 'Ramy', 'Doaa', 'Sara'],
+    last: ['Hassan', 'Mahmoud', 'Abdel Rahman', 'El Sayed', 'Farouk', 'Zaki',
+      'Shokry', 'El Masry', 'Abdel Aziz', 'Fahmy', 'Ibrahim', 'Kamel', 'Mansour',
+      'Ragab', 'Sobhy', 'El Deeb', 'Nassar', 'Fouad', 'Gaber', 'Hegazy', 'Salah'],
+  },
+  {
+    origin: 'lebanese',
+    weight: 25,
+    first: ['Georges', 'Elie', 'Charbel', 'Rami', 'Ziad', 'Karim', 'Nadine', 'Rita',
+      'Maya', 'Joelle', 'Hadi', 'Fadi', 'Bassam', 'Wissam', 'Rana', 'Lara', 'Nour',
+      'Jad', 'Marwan', 'Tony', 'Michel', 'Samir', 'Rima', 'Carla', 'Hiba', 'Ghassan'],
+    last: ['Haddad', 'Khoury', 'Nakhle', 'Sfeir', 'Gemayel', 'Aoun', 'Chalhoub',
+      'Fares', 'Rizk', 'Salameh', 'Nassif', 'Abou Jaoude', 'Bou Khalil', 'Daher',
+      'Karam', 'Saad', 'Zgheib', 'Tannous', 'Hakim', 'Sleiman'],
+  },
+];
 
 const BRANCHES = ['Dubai', 'Sharjah', 'Abu Dhabi', 'Al Ain'];
 
@@ -251,7 +282,8 @@ async function seed(workshopId) {
       const ch = weighted(CHANNELS);
       const payer = weighted(PAYERS).v;
       const [make, model] = pick(VEHICLES);
-      const name = `${pick(FIRST)} ${pick(LAST)}`;
+      const pool = weighted(NAME_POOLS);
+      const name = `${pick(pool.first)} ${pick(pool.last)}`;
       const phone = `+9715${pick(['0', '2', '4', '5', '6'])}${rint(1000000, 9999999)}`;
       const email = Math.random() < 0.72
         ? `${name.toLowerCase().replace(/[^a-z]/g, '.')}${rint(1, 99)}@example.com`
