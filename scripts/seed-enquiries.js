@@ -133,7 +133,14 @@ function weighted(items) {
   return items[items.length - 1];
 }
 
-const mysqlDate = d => d.toISOString().slice(0, 19).replace('T', ' ');
+// MySQL DATETIME carries no timezone, so it must be written in the same clock
+// the rest of the app reads it in. toISOString() converts to UTC first, which
+// shifted every seeded timestamp by the local offset - enough to put rows on
+// the wrong day near midnight, and to date a follow-up before its own enquiry.
+const pad2 = n => String(n).padStart(2, '0');
+const mysqlDate = d =>
+  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+  `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 
 /** A plausible enquiry time: business hours, Saturday-Thursday weighted. */
 function timeOnDay(daysAgo) {

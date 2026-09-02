@@ -42,7 +42,14 @@ const WORKSHOP = num('--workshop', 0);
 
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const rint = (lo, hi) => Math.floor(Math.random() * (hi - lo + 1)) + lo;
-const mysqlDate = d => d.toISOString().slice(0, 19).replace('T', ' ');
+// MySQL DATETIME carries no timezone, so it must be written in the same clock
+// the rest of the app reads it in. toISOString() converts to UTC first, which
+// shifted every seeded timestamp by the local offset - enough to put rows on
+// the wrong day near midnight, and to date a follow-up before its own enquiry.
+const pad2 = n => String(n).padStart(2, '0');
+const mysqlDate = d =>
+  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+  `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 
 /** Why an enquiry is still open. Feeds the lost-reasons breakdown. */
 const NURTURE_REASONS = ['price', 'timing', 'no_response', 'went_elsewhere', 'other'];
