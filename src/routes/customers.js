@@ -84,17 +84,17 @@ router.get('/stats', async (req, res) => {
          COUNT(*) as total,
          SUM(is_active = 1) as active,
          SUM(is_active = 0) as inactive,
-         SUM(type = 'corporate')  as corporate,
-         SUM(type = 'ecommerce')  as ecommerce,
-         SUM(type = 'restaurant') as restaurant,
-         SUM(type = 'individual') as individual
+         SUM(type = 'individual') as individual,
+         SUM(type = 'business')   as business,
+         SUM(type = 'fleet')      as fleet,
+         SUM(type = 'other')      as other
        FROM customers WHERE workshop_id = ?`,
       [req.workshopId]
     );
     const [workOrderStats] = await query(
       `SELECT COUNT(o.id) as total_work_orders,
               SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) as completed,
-              SUM(CASE WHEN o.status = 'failed'    THEN 1 ELSE 0 END) as failed
+              SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as failed
        FROM work_orders o
        INNER JOIN customers c ON o.customer_id = c.id
        WHERE c.workshop_id = ?`,
@@ -143,7 +143,7 @@ router.get('/:id', async (req, res) => {
     const [workOrderStats] = await query(
       `SELECT COUNT(*) as total_work_orders,
               SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as completed_work_orders,
-              SUM(CASE WHEN status='failed'    THEN 1 ELSE 0 END) as failed_work_orders,
+              SUM(CASE WHEN status='cancelled' THEN 1 ELSE 0 END) as failed_work_orders,
               SUM(CASE WHEN payment_method='cash' AND status='completed' THEN COALESCE(cash_amount,0) ELSE 0 END) as credit_used
        FROM work_orders WHERE customer_id = ?`,
       [req.params.id]

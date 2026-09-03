@@ -76,7 +76,7 @@ router.get('/summary', async (req, res) => {
          SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) AS completed,
          COALESCE(SUM(o.cash_amount), 0) AS total_cash,
          COALESCE(SUM(CASE WHEN o.status = 'completed' AND o.cash_collected > 0 THEN o.cash_collected ELSE 0 END), 0) AS collected,
-         COALESCE(SUM(CASE WHEN o.status NOT IN ('completed','failed','cancelled') THEN o.cash_amount ELSE 0 END), 0) AS pending
+         COALESCE(SUM(CASE WHEN o.status NOT IN ('completed','cancelled') THEN o.cash_amount ELSE 0 END), 0) AS pending
        FROM work_orders o
        INNER JOIN mechanics m ON o.mechanic_id = m.id
        WHERE o.workshop_id = ? AND o.payment_method = 'cash'

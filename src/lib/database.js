@@ -575,14 +575,17 @@ async function runMultiTenantMigrations() {
     console.log('pickup_requests table ready');
   } catch (e) { /* exists */ }
 
-  // ── Add 'accepted' to work order status ENUMs (workflow: assigned → accepted → picked_up) ──
-  // NOTE: kept the original enum values (pending/confirmed/assigned/accepted/picked_up/in_transit/
-  // delivered/failed/returned/cancelled) rather than renaming to workshop-specific labels
-  // (e.g. 'ready_for_pickup'/'completed') per the mapping doc's guidance to prefer keeping enum
-  // VALUES stable unless obviously delivery-specific. These values still map sensibly onto a
-  // service lifecycle (vehicle picked up -> in progress -> delivered back to customer).
-  try { await execute(`ALTER TABLE work_orders MODIFY COLUMN status ENUM('pending','confirmed','assigned','accepted','picked_up','in_transit','delivered','failed','returned','cancelled') DEFAULT 'pending'`); } catch (e) {}
-  try { await execute(`ALTER TABLE work_order_status_logs MODIFY COLUMN status ENUM('pending','confirmed','assigned','accepted','picked_up','in_transit','delivered','failed','returned','cancelled') NOT NULL`); } catch (e) {}
+  // ── Work order status ENUM ──
+  // This used to run an ALTER back to the old delivery-app enum
+  // (picked_up/in_transit/delivered/returned) on every server boot, even
+  // though car_workshop.sql (the real schema source, applied at deploy time)
+  // had long since moved on to the current workshop lifecycle. Since this
+  // function runs on every startup via initDatabase(), that stale ALTER was
+  // silently reverting the live status column's enum on every restart.
+  // Kept in sync with car_workshop.sql's work_orders.status /
+  // work_order_status_logs.status definitions — update both together.
+  try { await execute(`ALTER TABLE work_orders MODIFY COLUMN status ENUM('pending','confirmed','assigned','accepted','in_progress','inspection','ready_for_pickup','completed','cancelled') DEFAULT 'pending'`); } catch (e) {}
+  try { await execute(`ALTER TABLE work_order_status_logs MODIFY COLUMN status ENUM('pending','confirmed','assigned','accepted','in_progress','inspection','ready_for_pickup','completed','cancelled') NOT NULL`); } catch (e) {}
 
   // ── service_photos table for multi-photo proof of service/repair ──
   try {

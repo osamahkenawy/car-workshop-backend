@@ -518,7 +518,6 @@ router.get('/stats', async (req, res) => {
          SUM(status = 'in_progress')      as in_progress,
          SUM(status = 'ready_for_pickup') as ready_for_pickup,
          SUM(status = 'completed')        as completed,
-         SUM(status = 'failed')           as failed,
          SUM(status = 'cancelled')        as cancelled,
          COALESCE(SUM(service_fee), 0)                        as total_service_fees,
          COALESCE(SUM(CASE WHEN payment_method='cash' THEN cash_amount ELSE 0 END), 0) as total_cash,

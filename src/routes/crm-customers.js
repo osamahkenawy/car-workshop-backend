@@ -75,7 +75,7 @@ router.get('/:id', async (req, res) => {
     const [spend] = await query(
       `SELECT COUNT(*) AS jobs_total,
               SUM(status = 'completed') AS jobs_completed,
-              SUM(status IN ('failed','cancelled')) AS jobs_lost,
+              SUM(status = 'cancelled') AS jobs_lost,
               -- NULLIF before COALESCE: total_amount is 0.00 rather than NULL on
               -- much of the existing data, and COALESCE returns the first
               -- NON-NULL value, so a plain COALESCE returns that zero and never

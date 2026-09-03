@@ -37,6 +37,8 @@ import enquiriesRouter from './routes/enquiries.js';
 import serviceBaysRouter from './routes/service-bays.js';
 import vehiclesRouter from './routes/vehicles.js';
 import workOrdersRouter from './routes/work-orders.js';
+import customerFeedbackRouter from './routes/customer-feedback.js';
+import vehicleInspectionsRouter from './routes/vehicle-inspections.js';
 import partsRouter from './routes/parts.js';
 import jobAssignmentRouter from './routes/job-assignment.js';
 import servicePricingRouter from './routes/service-pricing.js';
@@ -194,6 +196,8 @@ app.use('/api/vehicles', vehiclesRouter);
 
 // ── Work order lifecycle ────────────────────────────────────────────────
 app.use('/api/work-orders', workOrdersRouter);
+app.use('/api/customer-feedback', customerFeedbackRouter);
+app.use('/api/vehicle-inspections', vehicleInspectionsRouter);
 app.use('/api/parts', partsRouter);
 app.use('/api/job-assignment', jobAssignmentRouter);
 app.use('/api/service-pricing', servicePricingRouter);

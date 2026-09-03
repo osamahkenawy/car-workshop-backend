@@ -15,8 +15,8 @@ const router = express.Router();
  * requires NO auth (customers use it to check on their vehicle).
  *
  * Status enum kept as the car_workshop.sql work_orders enum:
- *   pending, confirmed, assigned, accepted, in_progress, ready_for_pickup,
- *   completed, failed, cancelled
+ *   pending, confirmed, assigned, accepted, in_progress, inspection,
+ *   ready_for_pickup, completed, cancelled
  * (delivery-only statuses picked_up/in_transit/delivered/returned dropped —
  * see car_workshop.sql comment above the work_orders table).
  */
@@ -34,10 +34,10 @@ router.get('/my-orders', authMiddleware, async (req, res) => {
     }
 
     const { status: filterStatus } = req.query;
-    let statusFilter = "('assigned','accepted','in_progress','ready_for_pickup')"; // active by default
+    let statusFilter = "('assigned','accepted','in_progress','inspection','ready_for_pickup')"; // active by default
     if (filterStatus === 'completed') statusFilter = "('completed')";
-    else if (filterStatus === 'failed')    statusFilter = "('failed','cancelled')";
-    else if (filterStatus === 'all')       statusFilter = "('assigned','accepted','in_progress','ready_for_pickup','completed','failed','cancelled')";
+    else if (filterStatus === 'cancelled') statusFilter = "('cancelled')";
+    else if (filterStatus === 'all')       statusFilter = "('assigned','accepted','in_progress','inspection','ready_for_pickup','completed','cancelled')";
 
     const orders = await query(
       `SELECT o.id, o.work_order_number, o.service_status_token, o.status, o.work_order_type,
@@ -52,7 +52,7 @@ router.get('/my-orders', authMiddleware, async (req, res) => {
        LEFT JOIN service_bays sb ON o.service_bay_id = sb.id
        LEFT JOIN customers c ON o.customer_id = c.id
        WHERE o.mechanic_id = ? AND o.workshop_id = ? AND o.status IN ${statusFilter}
-       ORDER BY FIELD(o.status, 'in_progress','ready_for_pickup','assigned','completed','failed','cancelled'), o.created_at DESC`,
+       ORDER BY FIELD(o.status, 'in_progress','inspection','ready_for_pickup','assigned','completed','cancelled'), o.created_at DESC`,
       [mechanic.id, req.workshopId]
     );
 
@@ -66,12 +66,12 @@ router.get('/my-orders', authMiddleware, async (req, res) => {
       } catch (_) { order.parts = []; }
     }
 
-    // Quick stats — today (active = all current, completed/failed/revenue = today by completed_at/failed_at)
+    // Quick stats — today (active = all current, completed/cancelled/revenue = today by completed_at/cancelled_at)
     const [statsRow] = await query(
       `SELECT
-        SUM(CASE WHEN status IN ('assigned','accepted','in_progress','ready_for_pickup') THEN 1 ELSE 0 END) as active,
+        SUM(CASE WHEN status IN ('assigned','accepted','in_progress','inspection','ready_for_pickup') THEN 1 ELSE 0 END) as active,
         SUM(CASE WHEN status = 'completed' AND DATE(completed_at) = CURDATE() THEN 1 ELSE 0 END) as completed_today,
-        SUM(CASE WHEN status = 'failed' AND DATE(failed_at) = CURDATE() THEN 1 ELSE 0 END) as failed_today,
+        SUM(CASE WHEN status = 'cancelled' AND DATE(cancelled_at) = CURDATE() THEN 1 ELSE 0 END) as cancelled_today,
         SUM(CASE WHEN status = 'completed' AND DATE(completed_at) = CURDATE() THEN service_fee ELSE 0 END) as revenue_today
        FROM work_orders WHERE mechanic_id = ? AND workshop_id = ?`,
       [mechanic.id, req.workshopId]
@@ -93,7 +93,7 @@ router.get('/my-orders', authMiddleware, async (req, res) => {
       `SELECT
         COUNT(*) as total_orders,
         SUM(status = 'completed') as total_completed,
-        SUM(status = 'failed') as total_failed,
+        SUM(status = 'cancelled') as total_cancelled,
         SUM(CASE WHEN status = 'completed' THEN service_fee ELSE 0 END) as total_revenue
        FROM work_orders WHERE mechanic_id = ? AND workshop_id = ?`,
       [mechanic.id, req.workshopId]
@@ -111,9 +111,9 @@ router.get('/my-orders', authMiddleware, async (req, res) => {
     // Tab counts — all-time counts matching actually displayed orders per tab
     const [tabCounts] = await query(
       `SELECT
-        SUM(status IN ('assigned','accepted','in_progress','ready_for_pickup')) as active,
+        SUM(status IN ('assigned','accepted','in_progress','inspection','ready_for_pickup')) as active,
         SUM(status = 'completed') as completed,
-        SUM(status IN ('failed','cancelled')) as failed
+        SUM(status = 'cancelled') as cancelled
        FROM work_orders WHERE mechanic_id = ? AND workshop_id = ?`,
       [mechanic.id, req.workshopId]
     );
@@ -126,18 +126,18 @@ router.get('/my-orders', authMiddleware, async (req, res) => {
         stats: {
           active:    parseInt(statsRow?.active || 0),
           completed: parseInt(statsRow?.completed_today || 0),
-          failed:    parseInt(statsRow?.failed_today || 0),
+          cancelled: parseInt(statsRow?.cancelled_today || 0),
           revenue:   parseFloat(statsRow?.revenue_today || 0),
         },
         tabCounts: {
           active:    parseInt(tabCounts?.active || 0),
           completed: parseInt(tabCounts?.completed || 0),
-          failed:    parseInt(tabCounts?.failed || 0),
+          cancelled: parseInt(tabCounts?.cancelled || 0),
         },
         allTimeStats: {
           total_orders:     parseInt(allTime?.total_orders || 0),
           total_completed:  parseInt(allTime?.total_completed || 0),
-          total_failed:     parseInt(allTime?.total_failed || 0),
+          total_cancelled:  parseInt(allTime?.total_cancelled || 0),
           total_revenue:    parseFloat(allTime?.total_revenue || 0),
         },
       },
@@ -403,16 +403,15 @@ router.post('/:token/scan', authMiddleware, async (req, res) => {
 /* ── Status transition map (mechanic-side) ──────────────────────
    Kept aligned with car_workshop.sql work_orders.status enum:
    pending, confirmed, assigned, accepted, in_progress, ready_for_pickup,
-   completed, failed, cancelled */
+   completed, cancelled */
 const MECHANIC_TRANSITIONS = {
   pending:           ['confirmed', 'cancelled'],
   confirmed:         ['assigned', 'cancelled'],
   assigned:          ['accepted', 'in_progress', 'cancelled'],
   accepted:          ['in_progress', 'cancelled'],
-  in_progress:       ['ready_for_pickup', 'failed'],
-  ready_for_pickup:  ['completed', 'failed'],
+  in_progress:       ['ready_for_pickup', 'cancelled'],
+  ready_for_pickup:  ['completed', 'cancelled'],
   completed:         [],
-  failed:            ['confirmed'],
   cancelled:         [],
 };
 
@@ -421,7 +420,7 @@ const MECHANIC_TRANSITIONS = {
 router.patch('/:token/status', authMiddleware, async (req, res) => {
   try {
     const { status, note, lat, lng, cash_collected_amount } = req.body;
-    const validStatuses = ['confirmed','assigned','accepted','in_progress','ready_for_pickup','completed','failed','cancelled'];
+    const validStatuses = ['confirmed','assigned','accepted','in_progress','ready_for_pickup','completed','cancelled'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid status' });
     }
@@ -450,7 +449,6 @@ router.patch('/:token/status', authMiddleware, async (req, res) => {
     const timestamps = {};
     if (status === 'in_progress') timestamps.started_at = new Date();
     if (status === 'completed')   timestamps.completed_at = new Date();
-    if (status === 'failed')      timestamps.failed_at = new Date();
     if (status === 'cancelled')   timestamps.cancelled_at = new Date();
 
     // Handle cash collection on completion
@@ -482,7 +480,7 @@ router.patch('/:token/status', authMiddleware, async (req, res) => {
     }
 
     // Release mechanic back to available when work order reaches terminal status
-    if (['completed','failed','cancelled'].includes(status) && order.mechanic_id) {
+    if (['completed','cancelled'].includes(status) && order.mechanic_id) {
       const stillActive = await query(
         "SELECT id FROM work_orders WHERE mechanic_id = ? AND id != ? AND status IN ('assigned','accepted','in_progress','ready_for_pickup') LIMIT 1",
         [order.mechanic_id, order.id]

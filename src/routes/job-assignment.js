@@ -68,7 +68,7 @@ router.get('/', async (req, res) => {
     const mechanics = await query(
       `SELECT m.*, b.name as service_bay_name,
               ml.lat as last_lat, ml.lng as last_lng,
-              (SELECT COUNT(*) FROM work_orders WHERE mechanic_id = m.id AND status IN ('assigned','accepted','in_progress')) as active_work_orders
+              (SELECT COUNT(*) FROM work_orders WHERE mechanic_id = m.id AND status IN ('assigned','accepted','in_progress','inspection','ready_for_pickup')) as active_work_orders
        FROM mechanics m
        LEFT JOIN service_bays b ON m.service_bay_id = b.id
        LEFT JOIN (
@@ -83,7 +83,7 @@ router.get('/', async (req, res) => {
     const allMechanics = await query(
       `SELECT m.id, m.full_name, m.phone, m.specialty, m.status,
               b.name as service_bay_name,
-              (SELECT COUNT(*) FROM work_orders WHERE mechanic_id = m.id AND status IN ('assigned','accepted','in_progress')) as active_work_orders
+              (SELECT COUNT(*) FROM work_orders WHERE mechanic_id = m.id AND status IN ('assigned','accepted','in_progress','inspection','ready_for_pickup')) as active_work_orders
        FROM mechanics m
        LEFT JOIN service_bays b ON m.service_bay_id = b.id
        WHERE m.workshop_id = ? AND m.is_active = TRUE
@@ -98,12 +98,12 @@ router.get('/', async (req, res) => {
        JOIN mechanics m ON wo.mechanic_id = m.id
        LEFT JOIN service_bays b ON wo.service_bay_id = b.id
        LEFT JOIN customers c ON wo.customer_id = c.id
-       WHERE wo.workshop_id = ? AND wo.status IN ('assigned','accepted','in_progress')
+       WHERE wo.workshop_id = ? AND wo.status IN ('assigned','accepted','in_progress','inspection','ready_for_pickup')
        ORDER BY wo.updated_at DESC
        LIMIT 500`,
       [req.workshopId]
     );
-    // ── Completed / failed work orders updated today ──
+    // ── Completed / cancelled work orders updated today ──
     const completed = await query(
       `SELECT wo.id, wo.work_order_number, wo.status, wo.customer_name, wo.dropoff_address,
               wo.payment_method, wo.cash_amount,
@@ -114,7 +114,7 @@ router.get('/', async (req, res) => {
        LEFT JOIN mechanics m ON wo.mechanic_id = m.id
        LEFT JOIN service_bays b ON wo.service_bay_id = b.id
        LEFT JOIN customers c ON wo.customer_id = c.id
-       WHERE wo.workshop_id = ? AND wo.status IN ('completed','failed','cancelled')
+       WHERE wo.workshop_id = ? AND wo.status IN ('completed','cancelled')
          AND DATE(wo.updated_at) = CURDATE()
        ORDER BY wo.updated_at DESC
        LIMIT 100`,

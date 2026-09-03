@@ -122,8 +122,11 @@ router.post('/mechanics/:id/photo', mechanicPhoto.single('file'), validateUpload
 /* ── Helper: check if S3 is configured ───────────────── */
 const isS3Configured = () => !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY);
 
-/* ── Helper: save base64 signature (S3 with local fallback) ─ */
-async function saveBase64Signature(base64DataUrl, workOrderId) {
+/* ── Helper: save base64 signature (S3 with local fallback) ─
+   Exported so other routes (e.g. vehicle-inspections.js, which captures the
+   customer's sign-off on the walk-around) can store a signature the same way
+   without also writing work_orders.signature_url. */
+export async function saveBase64Signature(base64DataUrl, workOrderId) {
   // Strip data URI prefix if present
   const base64Data = base64DataUrl.replace(/^data:image\/\w+;base64,/, '');
   const buf = Buffer.from(base64Data, 'base64');

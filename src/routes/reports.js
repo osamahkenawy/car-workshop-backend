@@ -64,7 +64,7 @@ router.get('/', authMiddleware, async (req, res) => {
     // Overview stats
     const [totalWorkOrders]    = await query(`SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND ${dateFilter}`, [workshopId, ...dateParams]);
     const [completedWorkOrders] = await query(`SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status = 'completed' AND ${dateFilter}`, [workshopId, ...dateParams]);
-    const [failedWorkOrders]   = await query(`SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status = 'failed' AND ${dateFilter}`, [workshopId, ...dateParams]);
+    const [failedWorkOrders]   = await query(`SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status = 'cancelled' AND ${dateFilter}`, [workshopId, ...dateParams]);
     const [totalRevenue]   = await query(`SELECT COALESCE(SUM(service_fee - discount), 0) as total FROM work_orders WHERE workshop_id = ? AND status = 'completed' AND ${dateFilter}`, [workshopId, ...dateParams]);
     const [cashCollected]   = await query(`SELECT COALESCE(SUM(cash_amount), 0) as total FROM work_orders WHERE workshop_id = ? AND payment_method = 'cash' AND status = 'completed' AND ${dateFilter}`, [workshopId, ...dateParams]);
 
@@ -86,7 +86,7 @@ router.get('/', authMiddleware, async (req, res) => {
     const volumeByDay = await query(
       `SELECT DATE(created_at) as date, COUNT(*) as total,
               SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as delivered,
-              SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+              SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as failed
        FROM work_orders WHERE workshop_id = ? AND ${dateFilter}
        GROUP BY DATE(created_at) ORDER BY date`,
       [workshopId, ...dateParams]
@@ -130,7 +130,7 @@ router.get('/', authMiddleware, async (req, res) => {
               m.specialty,
               COUNT(o.id) as total_assigned,
               SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) as delivered,
-              SUM(CASE WHEN o.status = 'failed' THEN 1 ELSE 0 END) as failed,
+              SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as failed,
               COALESCE(SUM(o.service_fee - o.discount), 0) as revenue,
               m.rating
        FROM work_orders o JOIN mechanics m ON o.mechanic_id = m.id
@@ -166,7 +166,7 @@ router.get('/', authMiddleware, async (req, res) => {
       `SELECT c.id, c.full_name AS name, c.company_name AS company, c.email,
               COUNT(o.id) as orders,
               SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) as delivered,
-              SUM(CASE WHEN o.status = 'failed' THEN 1 ELSE 0 END) as failed,
+              SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as failed,
               COALESCE(SUM(o.service_fee - o.discount), 0) as revenue,
               COALESCE(AVG(o.service_fee - o.discount), 0) as avg_order_value,
               COALESCE(SUM(CASE WHEN o.payment_method = 'cash' THEN o.cash_amount ELSE 0 END), 0) as cod_total
@@ -196,7 +196,7 @@ router.get('/', authMiddleware, async (req, res) => {
     // Failure reasons breakdown (#54)
     const failureReasons = await query(
       `SELECT COALESCE(failure_reason, 'Not Specified') as reason, COUNT(*) as count
-       FROM work_orders WHERE workshop_id = ? AND status IN ('failed','cancelled') AND ${dateFilter}
+       FROM work_orders WHERE workshop_id = ? AND status = 'cancelled' AND ${dateFilter}
        GROUP BY failure_reason ORDER BY count DESC`,
       [workshopId, ...dateParams]
     );
@@ -245,9 +245,11 @@ router.get('/performance', authMiddleware, async (req, res) => {
       `SELECT
          COUNT(*) as total,
          SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as delivered,
-         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as returned,
+         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as failed,
+         0 as returned,
          SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_transit,
+         SUM(CASE WHEN status = 'inspection' THEN 1 ELSE 0 END) as inspection,
+         SUM(CASE WHEN status = 'ready_for_pickup' THEN 1 ELSE 0 END) as ready_for_pickup,
          SUM(CASE WHEN status IN ('pending','assigned','accepted','confirmed') THEN 1 ELSE 0 END) as pending,
          ROUND(AVG(CASE WHEN status = 'completed' AND completed_at IS NOT NULL
            THEN TIMESTAMPDIFF(MINUTE, created_at, completed_at) END), 1) as avg_delivery_minutes,
@@ -263,6 +265,8 @@ router.get('/performance', authMiddleware, async (req, res) => {
     const returned = parseInt(kpis.returned) || 0;
     const onTime = parseInt(kpis.on_time) || 0;
     const inTransit = parseInt(kpis.in_transit) || 0;
+    const inspection = parseInt(kpis.inspection) || 0;
+    const readyForPickup = parseInt(kpis.ready_for_pickup) || 0;
     const pending = parseInt(kpis.pending) || 0;
     const avgMinutes = parseFloat(kpis.avg_delivery_minutes) || 0;
     const deliveryRate = total ? Math.round((delivered / total) * 100) : 0;
@@ -276,8 +280,8 @@ router.get('/performance', authMiddleware, async (req, res) => {
          m.id as driver_id, m.full_name as name, m.phone,
          COUNT(o.id) as total,
          SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) as delivered,
-         SUM(CASE WHEN o.status = 'failed' THEN 1 ELSE 0 END) as failed,
-         SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as returned,
+         SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as failed,
+         0 as returned,
          ROUND(AVG(CASE WHEN o.status = 'completed' AND o.completed_at IS NOT NULL
            THEN TIMESTAMPDIFF(MINUTE, o.created_at, o.completed_at) END), 1) as avg_minutes,
          SUM(CASE WHEN o.status = 'completed' AND o.completed_at IS NOT NULL
@@ -327,6 +331,8 @@ router.get('/performance', authMiddleware, async (req, res) => {
     const statusDist = {
       delivered, failed, returned,
       in_transit: inTransit,
+      inspection,
+      ready_for_pickup: readyForPickup,
       pending,
     };
 
@@ -336,6 +342,8 @@ router.get('/performance', authMiddleware, async (req, res) => {
         kpis: {
           total, delivered, failed, returned,
           in_transit: statusDist.in_transit,
+          inspection: statusDist.inspection,
+          ready_for_pickup: statusDist.ready_for_pickup,
           pending: statusDist.pending,
           deliveryRate, onTimePct, firstAttemptPct,
           avgDeliveryHours: Math.round(avgMinutes / 60 * 10) / 10,
@@ -1111,7 +1119,7 @@ router.get('/insights', authMiddleware, async (req, res) => {
 
     // Insight 3: Failed work order rate
     const [failed] = await query(
-      `SELECT COUNT(*) as cnt FROM work_orders WHERE workshop_id = ? AND status = 'failed'
+      `SELECT COUNT(*) as cnt FROM work_orders WHERE workshop_id = ? AND status = 'cancelled'
        AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`, [t]
     );
     if (current.cnt > 0) {

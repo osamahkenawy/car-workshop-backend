@@ -1,0 +1,350 @@
+═══════════════════════════════════════════════════════════════════
+  ORACLE → CAR-WORKSHOP MIGRATION SPEC
+  Target DB: car_workshop  (MySQL 8, InnoDB, utf8mb4)
+  Target workshop_id: 1  (Pioneer Car Service Center)
+═══════════════════════════════════════════════════════════════════
+
+Purpose:
+  Everything needed to feed data from the existing Oracle workshop
+  system into this app WITHOUT breaking any page.
+
+
+───────────────────────────────────────────────────────────────────
+ 1) MIGRATION ORDER (respect the FK chain)
+───────────────────────────────────────────────────────────────────
+
+  1. customers        ─┐
+  2. vehicles         ─┼─ must exist before work_orders
+  3. mechanics        ─┘   (optional now; safe to leave null)
+  4. work_orders      ─── needs customers/vehicles/mechanics
+  5. invoices         ─── needs customers + optionally work_orders
+  6. invoice_items    ─── needs invoices
+
+CASCADE RULES YOU MUST KNOW BEFORE DELETING ANYTHING:
+  - customers → vehicles ...........  ON DELETE CASCADE
+        (dropping a customer WIPES their cars)
+  - customers → invoices ...........  ON DELETE RESTRICT
+        (customer with invoices cannot be deleted — safety net)
+  - customers/vehicles/mechanics/service_bays → work_orders .. ON DELETE SET NULL
+        (deletion detaches, does NOT kill the work order)
+
+  All data is scoped by workshop_id — every insert MUST have the
+  right workshop id or the app hides the row.
+
+
+───────────────────────────────────────────────────────────────────
+ 2) HARD REQUIREMENTS PER TABLE
+───────────────────────────────────────────────────────────────────
+
+Only fields marked "NOT NULL" here are strictly required. Everything
+else has a sensible default or can be NULL.
+
+───── customers ─────
+  Required:
+    workshop_id      INT     NOT NULL     ← use 1
+    full_name        VARCHAR NOT NULL     ← NVL(CustName, PrtyName, 'Unknown')
+    phone            VARCHAR NOT NULL     ← MobilNum; use '-' if truly empty
+
+  Safe defaults already set for you:
+    type='individual', emirate='Dubai', is_active=TRUE,
+    credit_limit=0, credit_used=0
+
+  Fields that improve the UI when populated:
+    company_name    → CRM shows "(Company)" suffix; use WorkComp / PrtyName
+    phone_alt       → WhatsNum (when different from MobilNum)
+    email           → only if it contains "@", else NULL
+    type='business' → set whenever company_name is populated
+
+───── vehicles ─────
+  Required:
+    workshop_id      INT     NOT NULL
+    customer_id      INT     NOT NULL     ← the NEW customers.id, not source code
+    make             VARCHAR NOT NULL     ← "Toyota", not "TOY" (see §5)
+    model            VARCHAR NOT NULL     ← "Camry"
+
+  Safe defaults:
+    fuel_type='petrol', transmission='automatic', is_active=TRUE
+
+  Optional (leave NULL if unknown — don't invent):
+    year          ← NULL when RegnDate blank
+    plate_number  ← RegNumbr
+    vin           ← nullable
+    color
+    mileage       ← use OKilomtr from the LATEST job on that vehicle
+
+───── work_orders ─────
+  Required:
+    workshop_id        INT     NOT NULL
+    work_order_number  VARCHAR NOT NULL UNIQUE  ← use DocNumbr directly
+                                                  (JCI20525 etc.)
+
+  Safe defaults:
+    status='pending', work_order_type='standard',
+    service_category='general_maintenance',
+    payment_method='cash', payment_status='pending', priority='normal',
+    all money fields = 0.00
+
+  Impact matrix — what breaks if these are wrong:
+
+    Column               | Missing/wrong ⇒ effect
+    ---------------------|------------------------------------------
+    customer_id          | Row shows "Walk-in" everywhere
+    vehicle_id           | Vehicle cell = "—"
+    status               | Falls back to 'pending'; filter counts skew
+    completed_at         | Avg service time & on-time % KPIs = 0/NULL
+                         | (Reports/Performance pages)
+    cancelled_at         | Only cosmetic in the timeline tab
+    total_amount         | Revenue KPIs = 0 (Dashboard + Reports)
+    service_fee          | Same
+    created_at           | Historical date filters break — the row
+                         | looks "created today" if this is not set
+                         | from JOB_DATE
+
+  ★ CRITICAL FOR HISTORICAL DATA ★
+    For status = 'completed', set:
+        created_at   = JOB_DATE
+        completed_at = JOB_DATE
+    Otherwise "Last 30 Days" reports count everything as "just now"
+    and the SLA / avg delivery time metrics are nonsense.
+
+  DO NOT populate (leave NULL for imports):
+    service_status_token          (UNIQUE — leave NULL)
+    pregenerated_token_id
+    All 6 customer-journey checkpoints
+        intake_inspection_at
+        job_card_signed_at
+        diagnosed_at
+        estimate_approved_at
+        joint_inspection_at
+        invoiced_at
+    (These are new-system flow steps, meaningless for old data.)
+
+───── invoices ─────
+  Required:
+    workshop_id        INT     NOT NULL
+    invoice_number     VARCHAR(20) NOT NULL UNIQUE  ← II217025 fits
+    customer_id        INT     NOT NULL             ← MUST resolve
+                                                     to new customers.id
+
+  Safe defaults:
+    subtotal=0, tax_rate=5.00 (UAE VAT), status='draft',
+    currency='AED', invoice_type='invoice'
+
+  What you'll need from Oracle (WSINVTRN):
+    invoice_date  → target created_at
+    subtotal/VAT/total → subtotal / tax_amount / total_amount
+    amount_paid  → amount_paid
+    payment method (free text VARCHAR(50)) → payment_method
+    paid_at when fully paid
+
+  Suggested status mapping:
+    fully paid    → 'paid'
+    partial paid  → 'partially_paid'
+    unpaid        → 'sent'  (or 'draft' if never issued)
+    voided        → 'void'
+
+  Wire work_order_id back to the target work order (via DocNumbr →
+  new work_orders.id bridge). If NULL, Invoices page still works,
+  just the "linked WO" link becomes a dash.
+
+───── invoice_items ─────
+  Minimum:
+    invoice_id, description, total
+  Everything else defaults.
+
+───── mechanics (can defer) ─────
+  Required:
+    workshop_id, full_name, phone
+  Nothing breaks without them — work orders will just show
+  "Unassigned" and Job Assignment page will look empty.
+
+
+───────────────────────────────────────────────────────────────────
+ 3) STATUS MAPPING (SAFE EXPANSION)
+───────────────────────────────────────────────────────────────────
+
+Target enum:
+  pending, confirmed, assigned, accepted, in_progress,
+  inspection, ready_for_pickup, completed, cancelled
+
+Any value OUTSIDE this list will fail the insert in strict SQL mode.
+
+Recommended CASE with defensive fallback:
+
+  CASE
+    WHEN JobStats = 'CLO'                 THEN 'completed'
+    WHEN JobStats = 'PRG'                 THEN 'in_progress'
+    WHEN JobStats = 'OPN'                 THEN 'pending'
+    WHEN JobStats IN ('CAN','VOD','DEL')  THEN 'cancelled'
+    ELSE 'pending'   -- NEVER a value not in the enum
+  END
+
+Before finalising, please run once against source to catch any
+codes you didn't mention:
+
+  SELECT JobStats, COUNT(*)
+    FROM WsJobmas
+   WHERE CompCode = '501'
+     AND DoctDate >= ADD_MONTHS(TRUNC(SYSDATE), -3)
+   GROUP BY JobStats;
+
+
+───────────────────────────────────────────────────────────────────
+ 4) PRESERVING SOURCE IDS FOR IDEMPOTENT RE-RUNS
+───────────────────────────────────────────────────────────────────
+
+You will rerun this migration many times. To avoid duplicates,
+tag each imported row with a source pointer. Two options:
+
+OPTION A — no schema change, use the notes column as JSON:
+    notes = JSON_OBJECT(
+      'src_id',      'V0018871',
+      'src',         'oracle',
+      'import_batch','2026-09-04'
+    )
+
+    Dedupe check:
+      SELECT id FROM vehicles
+       WHERE workshop_id = ?
+         AND JSON_EXTRACT(notes, '$.src_id') = 'V0018871';
+
+OPTION B — small schema migration (cleaner):
+    ALTER TABLE customers ADD COLUMN source_id VARCHAR(50) NULL;
+    CREATE UNIQUE INDEX ux_customers_src
+      ON customers (workshop_id, source_id);
+    -- Repeat for vehicles, invoices
+    -- (work_orders already unique via work_order_number)
+
+Recommendation: OPTION A first — easier to iterate on. Convert to
+OPTION B only when the migration is deemed final.
+
+
+───────────────────────────────────────────────────────────────────
+ 5) MAKE-CODE → HUMAN NAME
+───────────────────────────────────────────────────────────────────
+
+vehicles.make expects "Toyota", but source only gives you "TOY".
+
+Try to find the make-master in Oracle first:
+
+  SELECT table_name, column_name
+    FROM all_tab_columns
+   WHERE owner = 'ORBENG'
+     AND ( UPPER(column_name) LIKE '%MAKE%'
+        OR UPPER(column_name) LIKE '%BRAND%'
+        OR UPPER(column_name) LIKE '%MAKENAME%' )
+   ORDER BY table_name, column_name;
+
+If nothing usable exists, the pragmatic fix is:
+  - Import make='TOY' as-is
+  - Add a one-line SQL post-fix in the loader:
+      UPDATE vehicles SET make='Toyota' WHERE make='TOY';
+      UPDATE vehicles SET make='Nissan' WHERE make='NIS';
+      ... etc
+
+Vehicles list renders either way; only cosmetics.
+
+
+───────────────────────────────────────────────────────────────────
+ 6) GOTCHAS SPECIFIC TO THIS EXTRACT
+───────────────────────────────────────────────────────────────────
+
+  1. DE-DUP CUSTOMERS
+     "AMAN TAXI" appears N times — the loader must insert customers
+     FIRST, remember { CustCode → new customers.id } in memory,
+     THEN use that map for vehicles + work_orders.
+     Do NOT try to do the joins client-side while inserting.
+
+  2. MULTIPLE JOBS SAME DAY, SAME VEHICLE
+     V0012935 → JCI20619, JCI20620  (both PRG)
+     Correct behaviour: keep BOTH. The UNIQUE constraint on
+     work_order_number naturally allows this.
+
+  3. TAXI CODE / OPENING KM PLACEHOLDERS
+     TaxiCode = '0' or '-' → convert to NULL before insert
+     OKilomtr = 0 → probably meaningful (new car); keep as-is
+
+  4. BLANK VEHICLE YEAR
+     "Hybrid Camry | year blank" → import year = NULL.
+     Do NOT default to current year.
+
+  5. PHONE VALIDATION
+     Same rule as the existing bulk-import script:
+       - Strip spaces, dashes, non-breaking spaces
+       - Keep leading '+'
+       - Skip row if phone < 6 chars (catches "050" stubs)
+
+  6. INVOICE_PARTY ≠ CUSTOMER_CODE
+     Happens for fleet accounts (job for company A, billed to
+     company B). When they differ:
+       - work_orders.customer_id     = job's CUSTOMER_CODE
+       - invoices.customer_id        = INVOICE_PARTY code
+     Otherwise Invoices page filtered by customer breaks.
+
+  7. VIN NOT IN EXTRACT
+     Fine — vin is nullable. Search by plate still works.
+
+  8. HISTORICAL FINANCIAL FIELDS
+     total_amount, service_fee, cash_amount all default 0.00.
+     Set them from invoice data (§ 7) rather than the job header,
+     because WsJobmas rarely has the final total.
+
+
+───────────────────────────────────────────────────────────────────
+ 7) PAGE COVERAGE AFTER EACH EXTRACT
+───────────────────────────────────────────────────────────────────
+
+  Page                           | Works after extracts?
+  -------------------------------|-----------------------------------
+  Dashboard                      | ✅ Full (Top Mechanics empty)
+  Work Orders (list + detail)    | ✅ Full
+  Customers + Customer 360       | ✅ Full
+  Vehicles                       | ✅ Full
+  Reports / Performance          | ✅ ONLY if created_at & completed_at
+                                 |    are set from JOB_DATE
+  Invoices                       | ✅ After extract #4
+  Mechanics / Job Assignment     | ⚠️  Empty until mechanics extract
+  Service Reminders / Tasks /    | ⚠️  Empty — new-system features,
+    Feedback                     |    no source data
+  Service Bays / Pricing /       | ⚠️  Empty until configured in-app
+    Inventory                    |
+
+
+───────────────────────────────────────────────────────────────────
+ 8) TO SEND BEFORE THE LOADER SCRIPT CAN BE FINALISED
+───────────────────────────────────────────────────────────────────
+
+  a) WSINVTRN column list (you already have the query):
+       SELECT column_id, column_name, data_type, data_length
+         FROM all_tab_columns
+        WHERE owner = 'ORBENG' AND table_name = 'WSINVTRN'
+        ORDER BY column_id;
+     — I'll build the exact invoice extract from this.
+
+  b) Distinct JobStats codes seen in the last 3 months, with counts
+     (see §3 SQL). — I'll finalise the CASE fallback map.
+
+  c) Confirm target workshop_id = 1 (Pioneer Car Service Center).
+
+  d) Payment-method codes if WSINVTRN has one (so we can map
+     CSH/CRD → cash/credit).
+
+  e) Mechanics/staff table name in Oracle (so we can plan that
+     extract in parallel).
+
+
+───────────────────────────────────────────────────────────────────
+ 9) DELIVERABLES I WILL PRODUCE FROM YOUR REPLY
+───────────────────────────────────────────────────────────────────
+
+  1. Node/mysql2 loader script (idempotent, resolves ID bridges).
+  2. Rollback SQL keyed on the notes.src_id markers so a botched
+     rerun can be undone in one statement.
+  3. A "dry-run" mode that prints INSERT counts + skipped rows
+     without actually writing to the DB.
+  4. Optional: post-import verification queries that confirm
+     Sum(status counts) = Total on every page.
+
+───────────────────────────────────────────────────────────────────
+ END OF SPEC
+───────────────────────────────────────────────────────────────────

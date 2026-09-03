@@ -58,7 +58,7 @@ const vehicleCatalog = [
 ];
 
 const serviceCategories = ['oil_change', 'brake_repair', 'diagnostic', 'bodywork', 'tire_service', 'engine_repair', 'transmission', 'electrical', 'general_maintenance', 'other'];
-const workOrderStatuses = ['pending', 'confirmed', 'assigned', 'accepted', 'in_progress', 'ready_for_pickup', 'completed', 'cancelled'];
+const workOrderStatuses = ['pending', 'confirmed', 'assigned', 'accepted', 'in_progress', 'inspection', 'ready_for_pickup', 'completed', 'cancelled'];
 const cities = ['Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman', 'Ras Al Khaimah'];
 const colors = ['White', 'Black', 'Silver', 'Grey', 'Blue', 'Red'];
 const fuelTypes = ['petrol', 'diesel', 'hybrid', 'electric'];

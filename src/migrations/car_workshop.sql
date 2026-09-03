@@ -253,10 +253,21 @@ CREATE TABLE IF NOT EXISTS vehicles (
 -- ============================================================
 -- 8. WORK ORDERS (master work order table)
 -- Reinterpreted status enum for a workshop lifecycle (delivery-only statuses
--- 'picked_up'/'in_transit'/'returned' dropped or replaced):
+-- 'picked_up'/'in_transit'/'returned'/'failed' dropped or replaced):
 --   pending -> confirmed -> assigned -> accepted -> in_progress ->
---   ready_for_pickup -> completed / cancelled
--- 'returned' work maps instead to the separate warranty_claims flow.
+--   inspection -> ready_for_pickup -> completed / cancelled
+-- 'inspection' is the quality-check step after work is done and before the
+-- vehicle is marked ready for pickup. 'returned' work maps instead to the
+-- separate warranty_claims flow. There is no separate 'failed' outcome —
+-- a job that doesn't complete is 'cancelled' (failure_reason still records
+-- why).
+--
+-- The customer_*_at columns below are checkpoint timestamps layered on top
+-- of this status pipeline to track the wider 12-step service-delivery
+-- journey (see migrations/post/03_customer_journey.sql) without needing a
+-- matching status value for every step: intake inspection, job-card
+-- signature, diagnosis, estimate approval and joint inspection all happen
+-- within the 'confirmed'/'accepted'/'in_progress'/'inspection' statuses.
 -- sender_*/recipient_* fields collapsed into customer + vehicle references,
 -- since a work order has no delivery "recipient", just the customer/vehicle.
 -- weight/dimensions/category(parcel,food,...) dropped; replaced with
@@ -317,11 +328,20 @@ CREATE TABLE IF NOT EXISTS work_orders (
   calculated_distance_km DECIMAL(8,2) DEFAULT NULL COMMENT 'For mobile-mechanic / vehicle-pickup travel fee calc',
 
   -- Status
-  status ENUM('pending','confirmed','assigned','accepted','in_progress','ready_for_pickup','completed','failed','cancelled') DEFAULT 'pending',
+  status ENUM('pending','confirmed','assigned','accepted','in_progress','inspection','ready_for_pickup','completed','cancelled') DEFAULT 'pending',
   priority ENUM('normal','urgent','express','vip') DEFAULT 'normal',
   cancellation_reason TEXT,
   failure_reason TEXT,
   estimated_completion_at DATETIME DEFAULT NULL,
+
+  -- Customer-journey checkpoints (see comment above the enum) — nullable,
+  -- set independently of `status` as each stage is reached
+  intake_inspection_at DATETIME DEFAULT NULL COMMENT 'Journey step 3: intake inspection done',
+  job_card_signed_at DATETIME DEFAULT NULL COMMENT 'Journey step 4: customer signed the job card (hard gate)',
+  diagnosed_at DATETIME DEFAULT NULL COMMENT 'Journey step 5: test drive & diagnosis done',
+  estimate_approved_at DATETIME DEFAULT NULL COMMENT 'Journey step 6: customer approved the cost estimate (hard gate)',
+  joint_inspection_at DATETIME DEFAULT NULL COMMENT 'Journey step 9: joint inspection with customer done',
+  invoiced_at DATETIME DEFAULT NULL COMMENT 'Journey step 10: invoice issued',
 
   -- Customer-facing service status tracking
   service_status_token VARCHAR(100) UNIQUE,
@@ -364,7 +384,7 @@ CREATE TABLE IF NOT EXISTS work_order_items (
 CREATE TABLE IF NOT EXISTS work_order_status_logs (
   id INT AUTO_INCREMENT PRIMARY KEY,
   work_order_id INT NOT NULL,
-  status ENUM('pending','confirmed','assigned','accepted','in_progress','ready_for_pickup','completed','failed','cancelled') NOT NULL,
+  status ENUM('pending','confirmed','assigned','accepted','in_progress','inspection','ready_for_pickup','completed','cancelled') NOT NULL,
   changed_by INT COMMENT 'user_id who made the change',
   note TEXT,
   lat DECIMAL(10,7),

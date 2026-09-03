@@ -15,9 +15,11 @@
  * JUDGMENT CALLS:
  *  - Status enum kept per car_workshop.sql:
  *      pending -> confirmed -> assigned -> accepted -> in_progress ->
- *      ready_for_pickup -> completed / failed / cancelled
+ *      inspection -> ready_for_pickup -> completed / cancelled
  *    (delivery-only statuses 'picked_up'/'in_transit'/'returned' dropped;
- *    'returned' work now maps to the separate warranty-claims flow.)
+ *    'returned' work now maps to the separate warranty-claims flow. No
+ *    separate 'failed' outcome — a job that doesn't complete is cancelled,
+ *    failure_reason still records why.)
  *  - sender_ and recipient_ order fields collapsed into customer_id + vehicle_id
  *    + a redundant customer_name/phone/email snapshot on the work order
  *    (matches car_workshop.sql work_orders columns exactly).
@@ -86,9 +88,9 @@ router.get('/stats', async (req, res) => {
          SUM(status = 'assigned')         as assigned,
          SUM(status = 'accepted')         as accepted,
          SUM(status = 'in_progress')      as in_progress,
+         SUM(status = 'inspection')       as inspection,
          SUM(status = 'ready_for_pickup') as ready_for_pickup,
          SUM(status = 'completed')        as completed,
-         SUM(status = 'failed')           as failed,
          SUM(status = 'cancelled')        as cancelled,
          COALESCE(SUM(service_fee), 0)    as total_revenue,
          COALESCE(SUM(cash_amount), 0)    as total_cash,
@@ -821,25 +823,61 @@ router.post('/', async (req, res) => {
 
 /* ── Status transition map (per car_workshop.sql status enum) ─────────
    pending -> confirmed -> assigned -> accepted -> in_progress ->
-   ready_for_pickup -> completed / failed / cancelled
+   inspection -> ready_for_pickup -> completed / cancelled
+   There is no separate 'failed' outcome — a job that doesn't complete is
+   cancelled (failure_reason still records why).
    ─────────────────────────────────────────────────────────────────── */
 const VALID_TRANSITIONS = {
   pending:          ['confirmed', 'cancelled'],
   confirmed:        ['assigned', 'in_progress', 'cancelled'],
   assigned:         ['accepted', 'in_progress', 'cancelled', 'confirmed'],
   accepted:         ['in_progress', 'cancelled', 'assigned'],
-  in_progress:      ['ready_for_pickup', 'failed'],
-  ready_for_pickup: ['completed', 'failed'],
+  in_progress:      ['inspection', 'ready_for_pickup', 'cancelled'],
+  inspection:       ['ready_for_pickup', 'in_progress', 'cancelled'],
+  ready_for_pickup: ['completed', 'cancelled'],
   completed:        [],
-  failed:           ['confirmed'],
   cancelled:        ['pending'],
 };
+
+/* ── Customer-journey checkpoint columns (layered on top of `status`,
+   see the comment above the status enum in car_workshop.sql) ────────── */
+const JOURNEY_STAGE_COLUMNS = {
+  intake_inspection: 'intake_inspection_at',
+  job_card_signed:   'job_card_signed_at',
+  diagnosed:          'diagnosed_at',
+  estimate_approved: 'estimate_approved_at',
+  joint_inspection:  'joint_inspection_at',
+  invoiced:           'invoiced_at',
+};
+
+// PATCH /api/work-orders/:id/journey — log a customer-journey checkpoint
+router.patch('/:id/journey', async (req, res) => {
+  try {
+    const { stage } = req.body;
+    const column = JOURNEY_STAGE_COLUMNS[stage];
+    if (!column) {
+      return res.status(400).json({ success: false, message: `Invalid journey stage. Allowed: ${Object.keys(JOURNEY_STAGE_COLUMNS).join(', ')}` });
+    }
+    const [workOrder] = await query(
+      'SELECT id FROM work_orders WHERE id = ? AND workshop_id = ?',
+      [req.params.id, req.workshopId]
+    );
+    if (!workOrder) return res.status(404).json({ success: false, message: 'Work order not found' });
+
+    await execute(`UPDATE work_orders SET ${column} = NOW() WHERE id = ? AND workshop_id = ?`, [req.params.id, req.workshopId]);
+    const [updated] = await query('SELECT * FROM work_orders WHERE id = ? AND workshop_id = ?', [req.params.id, req.workshopId]);
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error('[WorkOrders] Journey checkpoint error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to log journey checkpoint' });
+  }
+});
 
 // PATCH /api/work-orders/:id/status — update work order status
 router.patch('/:id/status', async (req, res) => {
   try {
     const { status, note, lat, lng } = req.body;
-    const validStatuses = ['pending','confirmed','assigned','accepted','in_progress','ready_for_pickup','completed','failed','cancelled'];
+    const validStatuses = ['pending','confirmed','assigned','accepted','in_progress','inspection','ready_for_pickup','completed','cancelled'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid status' });
     }
@@ -872,7 +910,6 @@ router.patch('/:id/status', async (req, res) => {
     const timestamps = {};
     if (status === 'in_progress') timestamps.started_at   = new Date();
     if (status === 'completed')   timestamps.completed_at = new Date();
-    if (status === 'failed')      timestamps.failed_at    = new Date();
     if (status === 'cancelled')   timestamps.cancelled_at = new Date();
 
     const setClause = ['status = ?', ...Object.keys(timestamps).map(k => `${k} = ?`)].join(', ');
@@ -924,8 +961,27 @@ router.patch('/:id/status', async (req, res) => {
       await execute('UPDATE work_orders SET cash_collected = cash_amount WHERE id = ? AND workshop_id = ?', [workOrder.id, req.workshopId]);
     }
 
+    // Schedule the journey's step-12 follow-up call (48h out) if one isn't already scheduled
+    if (status === 'completed') {
+      try {
+        const [existing] = await query(
+          'SELECT id FROM customer_feedback WHERE work_order_id = ? AND workshop_id = ?',
+          [workOrder.id, req.workshopId]
+        );
+        if (!existing) {
+          await execute(
+            `INSERT INTO customer_feedback (workshop_id, work_order_id, customer_id, scheduled_at, status)
+             VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 48 HOUR), 'scheduled')`,
+            [req.workshopId, workOrder.id, workOrder.customer_id || null]
+          );
+        }
+      } catch (feedbackErr) {
+        console.error('Failed to schedule follow-up call:', feedbackErr.message);
+      }
+    }
+
     // Release mechanic back to available when work order reaches a terminal status
-    if (['completed','failed','cancelled'].includes(status) && workOrder.mechanic_id) {
+    if (['completed','cancelled'].includes(status) && workOrder.mechanic_id) {
       const stillActive = await query(
         "SELECT id FROM work_orders WHERE mechanic_id = ? AND id != ? AND status IN ('assigned','accepted','in_progress') LIMIT 1",
         [workOrder.mechanic_id, workOrder.id]

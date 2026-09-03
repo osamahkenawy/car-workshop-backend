@@ -4,11 +4,59 @@ import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// GET /api/stats — car workshop platform KPIs
+/**
+ * GET /api/stats?period=month|week — car workshop platform KPIs
+ *
+ * The dashboard is period-based rather than day-based: a workshop that has
+ * booked nothing since this morning still wants to see how the week/month is
+ * going, and day-scoped tiles just read 0. `period` drives the headline KPIs,
+ * the trend chart, and the status breakdown; the *_today fields are kept
+ * alongside for anything still reading them.
+ */
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const workshopId = req.workshopId;
     const today = new Date().toISOString().slice(0, 10);
+
+    const period = req.query.period === 'week' ? 'week' : 'month';
+    // Predicates for "in the selected period" / "in the one before it",
+    // applied to whichever date column a given metric is measured on.
+    const inPeriod = (col) => period === 'week'
+      ? `YEARWEEK(${col}, 1) = YEARWEEK(CURDATE(), 1)`
+      : `YEAR(${col}) = YEAR(CURDATE()) AND MONTH(${col}) = MONTH(CURDATE())`;
+    const inPrevPeriod = (col) => period === 'week'
+      ? `YEARWEEK(${col}, 1) = YEARWEEK(DATE_SUB(CURDATE(), INTERVAL 1 WEEK), 1)`
+      : `YEAR(${col}) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND MONTH(${col}) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))`;
+    // Range echoed back so the dashboard can deep-link into the work order
+    // list with the same window it is showing.
+    const [periodRange] = await query(
+      period === 'week'
+        ? `SELECT DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) AS start_date,
+                  DATE_ADD(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 6 DAY) AS end_date`
+        : `SELECT DATE_FORMAT(CURDATE(), '%Y-%m-01') AS start_date, LAST_DAY(CURDATE()) AS end_date`
+    );
+
+    // ── Period-scoped headline figures ──
+    const [ordersPeriod] = await query(
+      `SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND ${inPeriod('created_at')}`, [workshopId]);
+    const [completedPeriod] = await query(
+      `SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status = 'completed' AND ${inPeriod('completed_at')}`, [workshopId]);
+    const [revenuePeriod] = await query(
+      `SELECT COALESCE(SUM(service_fee - discount), 0) as total FROM work_orders
+        WHERE workshop_id = ? AND status = 'completed' AND ${inPeriod('completed_at')}`, [workshopId]);
+    const [cancelledPeriod] = await query(
+      `SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status = 'cancelled' AND ${inPeriod('cancelled_at')}`, [workshopId]);
+    const [avgServicePeriod] = await query(
+      `SELECT AVG(TIMESTAMPDIFF(MINUTE, created_at, completed_at)) as avg_minutes FROM work_orders
+        WHERE workshop_id = ? AND status = 'completed' AND ${inPeriod('completed_at')}`, [workshopId]);
+    // Previous period, for the delta badges
+    const [ordersPrev] = await query(
+      `SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND ${inPrevPeriod('created_at')}`, [workshopId]);
+    const [completedPrev] = await query(
+      `SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status = 'completed' AND ${inPrevPeriod('completed_at')}`, [workshopId]);
+    const [revenuePrev] = await query(
+      `SELECT COALESCE(SUM(service_fee - discount), 0) as total FROM work_orders
+        WHERE workshop_id = ? AND status = 'completed' AND ${inPrevPeriod('completed_at')}`, [workshopId]);
 
     // Work orders today
     const [workOrdersToday] = await query(
@@ -17,7 +65,17 @@ router.get('/', authMiddleware, async (req, res) => {
     );
     // Active work orders (in progress)
     const [activeWorkOrders] = await query(
-      "SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status IN ('assigned','accepted','in_progress','ready_for_pickup')",
+      "SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status IN ('assigned','accepted','in_progress','inspection','ready_for_pickup')",
+      [workshopId]
+    );
+    // Currently being worked on (mechanic actively on the job)
+    const [inProgressWorkOrders] = await query(
+      "SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status = 'in_progress'",
+      [workshopId]
+    );
+    // Currently in inspection/QC
+    const [inspectionWorkOrders] = await query(
+      "SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status = 'inspection'",
       [workshopId]
     );
     // Completed today
@@ -30,9 +88,10 @@ router.get('/', authMiddleware, async (req, res) => {
       "SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status IN ('pending','confirmed')",
       [workshopId]
     );
-    // Failed today
+    // Cancelled today (there's no separate 'failed' status any more — a job
+    // that doesn't complete is cancelled; failure_reason still records why)
     const [failedToday] = await query(
-      "SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status = 'failed' AND DATE(failed_at) = CURDATE()",
+      "SELECT COUNT(*) as count FROM work_orders WHERE workshop_id = ? AND status = 'cancelled' AND DATE(cancelled_at) = CURDATE()",
       [workshopId]
     );
     // Total revenue today (completed work orders)
@@ -68,18 +127,21 @@ router.get('/', authMiddleware, async (req, res) => {
        GROUP BY m.id ORDER BY work_orders_today DESC LIMIT 10`,
       [workshopId, workshopId]
     );
-    // Work orders last 7 days (chart data)
+    // Daily volume across the selected period (7 days for a week, the whole
+    // month otherwise) — the trend chart follows the period switcher too.
     const workOrdersChart = await query(
       `SELECT DATE(created_at) as date, COUNT(*) as total,
               SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-              SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-       FROM work_orders WHERE workshop_id = ? AND created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+              SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as failed
+       FROM work_orders WHERE workshop_id = ? AND ${inPeriod('created_at')}
        GROUP BY DATE(created_at) ORDER BY date`,
       [workshopId]
     );
-    // Work orders by status
+    // Status breakdown for the period the dashboard is showing, so the donut
+    // and the KPI tiles above it describe the same window.
     const workOrdersByStatus = await query(
-      "SELECT status, COUNT(*) as count FROM work_orders WHERE workshop_id = ? GROUP BY status",
+      `SELECT status, COUNT(*) as count FROM work_orders
+        WHERE workshop_id = ? AND ${inPeriod('created_at')} GROUP BY status`,
       [workshopId]
     );
     // Top service bays — show all active bays, LEFT JOIN so bays with 0 work orders still appear
@@ -121,7 +183,7 @@ router.get('/', authMiddleware, async (req, res) => {
     const [cashOutstanding] = await query(
       `SELECT COUNT(*) as count, COALESCE(SUM(cash_amount),0) as total
        FROM work_orders WHERE workshop_id = ? AND payment_method = 'cash'
-       AND status IN ('completed','in_progress','assigned','accepted','ready_for_pickup')
+       AND status IN ('completed','in_progress','inspection','assigned','accepted','ready_for_pickup')
        AND (cash_collected = FALSE OR cash_collected IS NULL)`,
       [workshopId]
     );
@@ -179,14 +241,22 @@ router.get('/', authMiddleware, async (req, res) => {
     const ry = parseFloat(revenueYesterday.total) || 0;
     const calcDelta = (curr, prev) => prev > 0 ? Math.round(((curr - prev) / prev) * 100) : (curr > 0 ? 100 : 0);
 
-    // Map work_orders_chart → daily_chart with `orders` field name frontend expects
-    // Fill all 7 days so the chart always shows a complete week
-    const dailyChart = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - (6 - i));          // -6 … 0
-      const iso = d.toISOString().slice(0, 10);   // YYYY-MM-DD
+    // Map work_orders_chart → daily_chart with the `orders` field name the
+    // frontend expects, filling every day in the period so the line is
+    // continuous even on days with no work.
+    const asIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const periodStart = new Date(periodRange.start_date);
+    const periodEnd   = new Date(periodRange.end_date);
+    const now = new Date();
+    // Don't draw the rest of the month as a flat zero line — stop at today.
+    const lastDay = periodEnd > now ? now : periodEnd;
+    const dayCount = Math.max(1, Math.round((lastDay - periodStart) / 86400000) + 1);
+    const dailyChart = Array.from({ length: dayCount }, (_, i) => {
+      const d = new Date(periodStart);
+      d.setDate(d.getDate() + i);
+      const iso = asIso(d);
       const row = workOrdersChart.find(r => {
-        const rd = r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10);
+        const rd = r.date instanceof Date ? asIso(r.date) : String(r.date).slice(0, 10);
         return rd === iso;
       });
       return {
@@ -200,10 +270,29 @@ router.get('/', authMiddleware, async (req, res) => {
     return res.json({
       success: true,
       data: {
+        // Which window everything above is measured over
+        period: {
+          type: period,
+          start_date: String(periodRange.start_date).slice(0, 10),
+          end_date: String(periodRange.end_date).slice(0, 10),
+        },
         // ── Flat KPI object the Dashboard frontend expects ──
         kpis: {
+          // Period-scoped headline figures (what the dashboard tiles show)
+          orders_period:     ordersPeriod.count || 0,
+          completed_period:  completedPeriod.count || 0,
+          cancelled_period:  cancelledPeriod.count || 0,
+          revenue_period:    parseFloat(revenuePeriod.total) || 0,
+          avg_minutes_period: Math.round(avgServicePeriod.avg_minutes || 0),
+          success_rate_period: (ordersPeriod.count || 0) > 0
+            ? Math.round(((completedPeriod.count || 0) / ordersPeriod.count) * 100) : 0,
+          delta_orders_period:    calcDelta(ordersPeriod.count || 0, ordersPrev.count || 0),
+          delta_completed_period: calcDelta(completedPeriod.count || 0, completedPrev.count || 0),
+          delta_revenue_period:   calcDelta(parseFloat(revenuePeriod.total) || 0, parseFloat(revenuePrev.total) || 0),
           orders_today: ot,
           active_orders: activeWorkOrders.count || 0,
+          in_progress_orders: inProgressWorkOrders.count || 0,
+          inspection_orders: inspectionWorkOrders.count || 0,
           delivered_today: dt,
           pending_orders: pendingWorkOrders.count || 0,
           failed_today: failedToday.count || 0,

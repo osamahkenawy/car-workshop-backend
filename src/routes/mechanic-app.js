@@ -2005,7 +2005,9 @@ router.post('/orders/:workOrderId/deliver', async (req, res) => {
 
 /**
  * POST /api/mechanic-app/orders/:workOrderId/fail
- * Mark work order as failed
+ * Mark work order as cancelled (job could not be completed).
+ * There is no separate 'failed' status — a job that doesn't complete is cancelled,
+ * with failure_reason kept for context on why.
  * Body: { reason, lat, lng }
  */
 router.post('/orders/:workOrderId/fail', async (req, res) => {
@@ -2026,13 +2028,13 @@ router.post('/orders/:workOrderId/fail', async (req, res) => {
     }
 
     await execute(
-      "UPDATE work_orders SET status = 'failed', failed_at = NOW(), failure_reason = ? WHERE id = ? AND workshop_id = ?",
+      "UPDATE work_orders SET status = 'cancelled', cancelled_at = NOW(), failure_reason = ? WHERE id = ? AND workshop_id = ?",
       [reason, order.id, req.workshopId]
     );
 
     await execute(
       'INSERT INTO work_order_status_logs (work_order_id, status, changed_by, note, lat, lng) VALUES (?, ?, ?, ?, ?, ?)',
-      [order.id, 'failed', req.user.id, `Job failed: ${reason}`, lat || null, lng || null]
+      [order.id, 'cancelled', req.user.id, `Job failed: ${reason}`, lat || null, lng || null]
     );
 
     // Release mechanic
@@ -2044,7 +2046,7 @@ router.post('/orders/:workOrderId/fail', async (req, res) => {
       await execute("UPDATE mechanics SET status = 'available' WHERE id = ?", [mechanic.id]);
     }
 
-    return res.json({ success: true, message: 'Work order marked as failed' });
+    return res.json({ success: true, message: 'Work order marked as cancelled' });
   } catch (err) {
     console.error('[MechanicApp] fail order error:', err);
     return res.status(500).json({ success: false, message: 'Failed to update work order' });
