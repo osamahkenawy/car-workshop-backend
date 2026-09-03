@@ -180,7 +180,7 @@ async function seed(ws) {
     const res = await execute(
       `INSERT INTO users (workshop_id, full_name, username, email, password, role, is_active, email_verified)
        VALUES (?,?,?,?,?,?,1,1)`,
-      [ws, a.name, username, `${username}@seed.local`, pw, a.role]
+      [ws, a.name, username, `${username}@pioneeruae.com`, pw, a.role]
     );
     advisorIds.push(res.insertId);
   }

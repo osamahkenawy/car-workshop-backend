@@ -85,10 +85,10 @@ async function seed() {
         `INSERT INTO workshops (name, slug, subdomain, email, phone, address, city, emirate, status, trial_ends_at, settings)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
         [
-          'Demo Auto Workshop',
+          'Pioneer Car Service Center',
           'demo-auto-workshop',
           'demo',
-          'info@demo-workshop.local',
+          'info@pioneeruae.com',
           '+97141234567',
           'Al Quoz Industrial Area 3',
           'Dubai',
@@ -122,7 +122,7 @@ async function seed() {
       const [result] = await connection.query(
         `INSERT INTO users (workshop_id, full_name, username, email, phone, password, role, is_active, is_owner, email_verified)
          VALUES (?, ?, ?, ?, ?, ?, 'admin', 1, 1, 1)`,
-        [workshopId, 'Workshop Admin', 'admin', 'admin@demo-workshop.local', '+971501234567', passwordHash]
+        [workshopId, 'Workshop Manager', 'admin', 'manager@pioneeruae.com', '+971501234567', passwordHash]
       );
       adminUserId = result.insertId;
       console.log(`Created admin user id=${adminUserId} (username: admin)`);
@@ -172,7 +172,7 @@ async function seed() {
           workshopId,
           m.name,
           `+9715${randomInt(0, 9)}${randomInt(1000000, 9999999)}`,
-          `${m.name.toLowerCase().replace(/\s+/g, '.')}@demo-workshop.local`,
+          `${m.name.toLowerCase().replace(/\s+/g, '.')}@pioneeruae.com`,
           `MECH-${randomInt(10000, 99999)}`,
           m.specialty,
           random(['available', 'busy', 'offline']),

@@ -6,6 +6,10 @@
  * which read as obviously fake the moment anyone demos the product. This moves
  * every staff email onto @pioneeruae.com and gives the advisors real usernames.
  *
+ * It also renames the workshop itself off "Demo Auto Workshop" and
+ * info@demo-workshop.local. The slug is deliberately left alone — see
+ * WORKSHOP below.
+ *
  * It also relabels the owner account as the workshop manager. The `role`
  * column is deliberately left as 'admin': the frontend sidebar gates every
  * nav item on roles ['admin','dispatcher'], so changing the role string would
@@ -22,6 +26,29 @@ import { query, execute } from '../src/lib/database.js';
 
 const DOMAIN = 'pioneeruae.com';
 const DRY = process.argv.includes('--dry-run');
+
+/**
+ * The workshop's own identity.
+ *
+ * `slug` is NOT changed. It is not shown anywhere in the UI, but it is the
+ * key three other things resolve against:
+ *   - WORKSHOP_SLUG in the Google Form Apps Script, which posts survey
+ *     responses and would start failing with "could not determine the
+ *     workshop"
+ *   - PUBLIC_SURVEY_WORKSHOP in .env
+ *   - any public /survey?workshop=<slug> link already shared or printed on a QR
+ * Renaming it is a coordinated change across all of those, not a tidy-up, so
+ * it is left as it is and only the display name moves.
+ */
+const WORKSHOP = {
+  name: 'Pioneer Car Service Center',
+  email: `info@${DOMAIN}`,
+};
+
+/** Placeholder domains the seed data shipped with. */
+const PLACEHOLDER_DOMAINS = ['demo-workshop.local', 'seed.local'];
+const isPlaceholder = email =>
+  PLACEHOLDER_DOMAINS.some(d => String(email || '').toLowerCase().endsWith('@' + d));
 
 /** "Ahmed Al Rashid" -> "ahmed.al.rashid" */
 function slug(name) {
@@ -50,6 +77,24 @@ function unique(base, taken) {
 
 async function run() {
   const changes = [];
+
+  /* ── The workshop ─────────────────────────────────────────── */
+  const workshops = await query('SELECT id, name, slug, email FROM workshops ORDER BY id');
+  for (const w of workshops) {
+    // Only the seeded demo workshop is touched. A real tenant added later
+    // must keep its own name.
+    const looksSeeded = /demo/i.test(w.name || '') || isPlaceholder(w.email);
+    if (!looksSeeded) continue;
+    if (w.name === WORKSHOP.name && w.email === WORKSHOP.email) continue;
+    changes.push({
+      table: 'workshops', id: w.id, who: w.slug,
+      from: `${w.name} <${w.email}>`, to: `${WORKSHOP.name} <${WORKSHOP.email}>`,
+    });
+    if (!DRY) {
+      await execute('UPDATE workshops SET name = ?, email = ? WHERE id = ?',
+        [WORKSHOP.name, WORKSHOP.email, w.id]);
+    }
+  }
 
   /* ── Mechanics (technicians) ─────────────────────────────── */
   const mechanics = await query(
@@ -125,6 +170,16 @@ async function run() {
       console.log(`      ${c.from}`);
       console.log(`   -> ${c.to}`);
     }
+  }
+
+  const stillDemo = (await query(
+    "SELECT slug FROM workshops WHERE slug LIKE '%demo%'"
+  )).map(w => w.slug);
+  if (stillDemo.length) {
+    console.log(`\nSlug left unchanged on purpose: ${stillDemo.join(', ')}`);
+    console.log('It is not shown in the UI, and the Google Form Apps Script,');
+    console.log('PUBLIC_SURVEY_WORKSHOP and any shared /survey links all resolve');
+    console.log('against it. Changing it means updating those together.');
   }
 
   // The owner login is unchanged; say so, because "admin -> manager" invites
