@@ -6,7 +6,7 @@
  * Runs a periodic cron job (every 30 minutes) that:
  *  1. Finds work orders that are assigned/accepted/in_progress/ready_for_pickup but not yet completed
  *  2. Checks if the work order has exceeded the expected completion window:
- *     - If `estimated_delivery_at` is set and past → overdue
+ *     - If `estimated_completion_at` is set and past → overdue
  *     - If `scheduled_at` is set and past → overdue
  *     - If work order has been in_progress or ready_for_pickup for more than a configurable threshold (default: 3 hours) → delayed
  *     - If work order has been assigned/accepted for more than 6 hours without starting → delayed
@@ -69,17 +69,17 @@ export function startJobDelayChecker() {
 async function checkJobDelays() {
   const now = new Date();
 
-  // ── 1. Work orders past their estimated_delivery_at or scheduled_at ──
+  // ── 1. Work orders past their estimated_completion_at or scheduled_at ──
   const overdueOrders = await query(`
     SELECT o.id, o.work_order_number, o.workshop_id, o.mechanic_id, o.status,
            o.customer_name, o.scheduled_at,
-           o.estimated_delivery_at, o.created_at, o.picked_up_at,
+           o.estimated_completion_at, o.created_at, o.picked_up_at,
            d.full_name as mechanic_name, d.user_id as mechanic_user_id
     FROM work_orders o
     LEFT JOIN mechanics d ON o.mechanic_id = d.id
     WHERE o.status IN ('assigned', 'accepted', 'in_progress', 'ready_for_pickup')
       AND (
-        (o.estimated_delivery_at IS NOT NULL AND o.estimated_delivery_at < NOW())
+        (o.estimated_completion_at IS NOT NULL AND o.estimated_completion_at < NOW())
         OR (o.scheduled_at IS NOT NULL AND o.scheduled_at < NOW())
       )
   `);
@@ -88,7 +88,7 @@ async function checkJobDelays() {
   const stuckAssigned = await query(`
     SELECT o.id, o.work_order_number, o.workshop_id, o.mechanic_id, o.status,
            o.customer_name, o.scheduled_at,
-           o.estimated_delivery_at, o.created_at, o.picked_up_at,
+           o.estimated_completion_at, o.created_at, o.picked_up_at,
            d.full_name as mechanic_name, d.user_id as mechanic_user_id,
            TIMESTAMPDIFF(HOUR, COALESCE(
              (SELECT MAX(osl.created_at) FROM work_order_status_logs osl WHERE osl.work_order_id = o.id),
@@ -97,7 +97,7 @@ async function checkJobDelays() {
     FROM work_orders o
     LEFT JOIN mechanics d ON o.mechanic_id = d.id
     WHERE o.status IN ('assigned', 'accepted')
-      AND o.estimated_delivery_at IS NULL
+      AND o.estimated_completion_at IS NULL
       AND o.scheduled_at IS NULL
       AND TIMESTAMPDIFF(HOUR, COALESCE(
         (SELECT MAX(osl.created_at) FROM work_order_status_logs osl WHERE osl.work_order_id = o.id),
@@ -108,13 +108,13 @@ async function checkJobDelays() {
   const stuckInTransit = await query(`
     SELECT o.id, o.work_order_number, o.workshop_id, o.mechanic_id, o.status,
            o.customer_name, o.scheduled_at,
-           o.estimated_delivery_at, o.created_at, o.picked_up_at,
+           o.estimated_completion_at, o.created_at, o.picked_up_at,
            d.full_name as mechanic_name, d.user_id as mechanic_user_id,
            TIMESTAMPDIFF(HOUR, COALESCE(o.picked_up_at, o.created_at), NOW()) as hours_in_transit
     FROM work_orders o
     LEFT JOIN mechanics d ON o.mechanic_id = d.id
     WHERE o.status IN ('in_progress', 'ready_for_pickup')
-      AND o.estimated_delivery_at IS NULL
+      AND o.estimated_completion_at IS NULL
       AND o.scheduled_at IS NULL
       AND TIMESTAMPDIFF(HOUR, COALESCE(o.picked_up_at, o.created_at), NOW()) >= ?
   `, [DELAY_THRESHOLDS.in_transit_too_long]);
@@ -122,7 +122,7 @@ async function checkJobDelays() {
   // Merge all delayed work orders, deduplicate by work order id
   const allDelayed = new Map();
   for (const o of overdueOrders) {
-    allDelayed.set(o.id, { ...o, reason: 'overdue', detail: `Past ${o.estimated_delivery_at ? 'estimated' : 'scheduled'} completion time` });
+    allDelayed.set(o.id, { ...o, reason: 'overdue', detail: `Past ${o.estimated_completion_at ? 'estimated' : 'scheduled'} completion time` });
   }
   for (const o of stuckAssigned) {
     if (!allDelayed.has(o.id)) {
