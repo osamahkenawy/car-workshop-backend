@@ -187,9 +187,15 @@ router.get('/', async (req, res) => {
     if (service_type) { where.push('r.service_type = ?'); params.push(service_type); }
     if (channel && CHANNELS.includes(channel)) { where.push('r.send_channel = ?'); params.push(channel); }
     if (search) {
-      where.push('(c.full_name LIKE ? OR c.phone LIKE ? OR v.plate_number LIKE ?)');
+      // Make and model are in the search because the table shows the vehicle
+      // in column two, so "Toyota" is the obvious thing to type — and it used
+      // to return nothing.
+      where.push(
+        '(c.full_name LIKE ? OR c.phone LIKE ? OR v.plate_number LIKE ?'
+        + ' OR v.make LIKE ? OR v.model LIKE ?)'
+      );
       const like = `%${search}%`;
-      params.push(like, like, like);
+      params.push(like, like, like, like, like);
     }
 
     const clause = where.join(' AND ');

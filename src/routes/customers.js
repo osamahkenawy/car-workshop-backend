@@ -29,7 +29,7 @@ router.use(authMiddleware);
 // GET /api/customers
 router.get('/', async (req, res) => {
   try {
-    const { search, type, emirate, page = 1, limit = 50 } = req.query;
+    const { search, type, emirate, page = 1, limit = 50, sort } = req.query;
     const pg = parseInt(page, 10) || 1;
     const lim = parseInt(limit, 10) || 50;
     const offset = (pg - 1) * lim;
@@ -43,14 +43,31 @@ router.get('/', async (req, res) => {
       params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
+    // Sort is interpolated into the SQL, so it is resolved through this map and
+    // never from the raw query string.
+    const ORDER_BY = {
+      name:   'c.full_name ASC',
+      // "Recent" means last touched in any way, so a job still in progress
+      // counts. That is deliberately not the same as last_visit_at, which is
+      // the last *completed* visit and must match the Customer 360 card.
+      recent: 'last_activity_at IS NULL, last_activity_at DESC, c.created_at DESC',
+      value:  'lifetime_value DESC, c.full_name ASC',
+    };
+    const orderBy = ORDER_BY[sort] || ORDER_BY.name;
+
     const [{ total }] = await query(`SELECT COUNT(*) as total FROM customers c ${where}`, params);
     const customers = await query(
       `SELECT c.*,
               COUNT(o.id) as total_work_orders,
-              SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) as completed_work_orders
+              SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) as completed_work_orders,
+              MAX(o.completed_at) AS last_visit_at,
+              MAX(o.created_at) AS last_activity_at,
+              COALESCE(SUM(CASE WHEN o.status = 'completed'
+                    THEN COALESCE(NULLIF(o.total_amount, 0), o.service_fee, 0)
+                    ELSE 0 END), 0) AS lifetime_value
        FROM customers c
        LEFT JOIN work_orders o ON o.customer_id = c.id
-       ${where} GROUP BY c.id ORDER BY c.full_name ASC LIMIT ${lim} OFFSET ${offset}`,
+       ${where} GROUP BY c.id ORDER BY ${orderBy} LIMIT ${lim} OFFSET ${offset}`,
       params
     );
     return res.json({ success: true, data: customers, pagination: { total, page: pg, limit: lim } });
