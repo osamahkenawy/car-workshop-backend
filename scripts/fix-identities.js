@@ -18,14 +18,48 @@
  *
  * Idempotent — re-running it makes no further changes.
  *
- *   node scripts/fix-identities.js            # apply
- *   node scripts/fix-identities.js --dry-run  # show what would change
+ * Scoped to ONE workshop. Staging has four (three left over from security
+ * testing), and an earlier version treated every is_owner=1 user across all of
+ * them as "the owner", handing them all the same manager@ address and dying on
+ * the unique index. It also offered to rename VAPT probe accounts and real
+ * addresses on other domains, neither of which it has any business touching.
+ *
+ *   node scripts/fix-identities.js                       # the seeded workshop
+ *   node scripts/fix-identities.js --workshop=2          # by id
+ *   node scripts/fix-identities.js --workshop=some-slug  # by slug
+ *   node scripts/fix-identities.js --dry-run
  */
 
 import { query, execute } from '../src/lib/database.js';
 
 const DOMAIN = 'pioneeruae.com';
 const DRY = process.argv.includes('--dry-run');
+const WS_ARG = (process.argv.find(a => a.startsWith('--workshop=')) || '').split('=')[1];
+
+/**
+ * Domains that are placeholders and safe to rewrite. Anything else — a real
+ * company address like @mwasalat.ae — is left alone: it is somebody's actual
+ * mailbox, and rewriting it silently breaks their notifications and their
+ * password reset.
+ */
+// DOMAIN itself is included so a row already on @pioneeruae.com runs through
+// the normal path and falls out as "nothing to change", rather than being
+// reported as skipped for having a real domain — which reads like a failure.
+const REWRITABLE_DOMAINS = [DOMAIN, 'demo-workshop.local', 'seed.local', 'example.com'];
+const isRewritable = email => {
+  const at = String(email || '').toLowerCase().split('@')[1];
+  return !email || REWRITABLE_DOMAINS.includes(at);
+};
+
+/**
+ * Accounts created by security testing. Renaming one to
+ * img.srcx.onerroralert1@pioneeruae.com is worse than leaving it: it makes a
+ * probe account look like staff. They are reported for deletion instead.
+ */
+const isProbeAccount = u => {
+  const hay = `${u.full_name || ''} ${u.username || ''} ${u.email || ''}`.toLowerCase();
+  return /vapt|xss|probe\.local|test\.local|redteam|onerror|<img/.test(hay);
+};
 
 /**
  * The workshop's own identity.
@@ -77,31 +111,53 @@ function unique(base, taken) {
 
 async function run() {
   const changes = [];
+  const skipped = [];
 
-  /* ── The workshop ─────────────────────────────────────────── */
-  const workshops = await query('SELECT id, name, slug, email FROM workshops ORDER BY id');
-  for (const w of workshops) {
-    // Only the seeded demo workshop is touched. A real tenant added later
-    // must keep its own name.
-    const looksSeeded = /demo/i.test(w.name || '') || isPlaceholder(w.email);
-    if (!looksSeeded) continue;
-    if (w.name === WORKSHOP.name && w.email === WORKSHOP.email) continue;
-    changes.push({
-      table: 'workshops', id: w.id, who: w.slug,
-      from: `${w.name} <${w.email}>`, to: `${WORKSHOP.name} <${WORKSHOP.email}>`,
-    });
-    if (!DRY) {
-      await execute('UPDATE workshops SET name = ?, email = ? WHERE id = ?',
-        [WORKSHOP.name, WORKSHOP.email, w.id]);
+  /* ── Pick exactly one workshop ────────────────────────────── */
+  let ws;
+  if (WS_ARG) {
+    [ws] = await query(
+      'SELECT id, name, slug, email FROM workshops WHERE id = ? OR slug = ? LIMIT 1',
+      [Number(WS_ARG) || 0, WS_ARG]);
+    if (!ws) { console.error(`No workshop matches "${WS_ARG}".`); process.exit(1); }
+  } else {
+    // Default to the seeded one rather than "the first", so running this on a
+    // multi-tenant box cannot rename somebody else's workshop by accident.
+    [ws] = await query(
+      `SELECT id, name, slug, email FROM workshops
+        WHERE name LIKE '%Demo%' OR email LIKE '%demo-workshop.local'
+           OR slug LIKE '%demo%' ORDER BY id LIMIT 1`);
+    if (!ws) [ws] = await query('SELECT id, name, slug, email FROM workshops ORDER BY id LIMIT 1');
+    if (!ws) { console.error('No workshop found.'); process.exit(1); }
+  }
+  console.log(`Workshop: ${ws.name} (id ${ws.id}, slug ${ws.slug})\n`);
+
+  /* ── The workshop itself ──────────────────────────────────── */
+  if (/demo/i.test(ws.name || '') || isPlaceholder(ws.email)) {
+    if (ws.name !== WORKSHOP.name || ws.email !== WORKSHOP.email) {
+      changes.push({
+        table: 'workshops', id: ws.id, who: ws.slug,
+        from: `${ws.name} <${ws.email}>`, to: `${WORKSHOP.name} <${WORKSHOP.email}>`,
+      });
+      if (!DRY) {
+        await execute('UPDATE workshops SET name = ?, email = ? WHERE id = ?',
+          [WORKSHOP.name, WORKSHOP.email, ws.id]);
+      }
     }
   }
 
   /* ── Mechanics (technicians) ─────────────────────────────── */
   const mechanics = await query(
-    'SELECT id, full_name, email FROM mechanics ORDER BY id'
+    'SELECT id, full_name, email FROM mechanics WHERE workshop_id = ? ORDER BY id', [ws.id]
   );
   const mechTaken = new Set();
   for (const m of mechanics) {
+    if (!isRewritable(m.email)) {
+      skipped.push(`mechanics#${m.id} ${m.full_name} <${m.email}> — real domain, left alone`);
+      // Reserve the local-part so a rename below cannot collide with it.
+      mechTaken.add(String(m.email).split('@')[0]);
+      continue;
+    }
     const local = unique(slug(m.full_name), mechTaken);
     const email = `${local}@${DOMAIN}`;
     if (m.email === email) continue;
@@ -113,14 +169,29 @@ async function run() {
   // Collect local-parts already in use so a rename cannot collide with a row
   // this run is not touching.
   const users = await query(
-    'SELECT id, username, full_name, email, role, is_owner FROM users ORDER BY id'
+    'SELECT id, username, full_name, email, role, is_owner FROM users WHERE workshop_id = ? ORDER BY id',
+    [ws.id]
   );
   const userTaken = new Set(
     users.map(u => String(u.email || '').split('@')[0]).filter(Boolean)
   );
 
+  // Exactly one account becomes the manager. Several rows can carry
+  // is_owner = 1, and giving them all manager@ collides on the unique index.
+  const ownerRow = users.find(u => u.username === 'admin')
+    || users.find(u => Number(u.is_owner) === 1 && !isProbeAccount(u));
+
   for (const u of users) {
-    const isOwner = Number(u.is_owner) === 1 || u.username === 'admin';
+    if (isProbeAccount(u)) {
+      skipped.push(`users#${u.id} ${u.username} <${u.email}> — security-probe account, consider deleting`);
+      continue;
+    }
+    if (!isRewritable(u.email)) {
+      skipped.push(`users#${u.id} ${u.full_name} <${u.email}> — real domain, left alone`);
+      userTaken.add(String(u.email).split('@')[0]);
+      continue;
+    }
+    const isOwner = ownerRow && u.id === ownerRow.id;
 
     // The owner keeps the `admin` username and role — only the label moves.
     if (isOwner) {
@@ -170,6 +241,11 @@ async function run() {
       console.log(`      ${c.from}`);
       console.log(`   -> ${c.to}`);
     }
+  }
+
+  if (skipped.length) {
+    console.log(`\nLeft alone (${skipped.length}):`);
+    for (const line of skipped) console.log('  ' + line);
   }
 
   const stillDemo = (await query(
