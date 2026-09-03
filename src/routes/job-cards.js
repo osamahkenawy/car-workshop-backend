@@ -36,7 +36,7 @@ router.get('/', async (req, res) => {
     let sql = `
       SELECT jc.*, wo.work_order_number, wo.customer_name AS wo_customer_name,
              wo.customer_phone, v.plate_number, v.make, v.model,
-             CONCAT(u.first_name, ' ', u.last_name) AS foreman_name,
+             u.full_name AS foreman_name,
              sb.name AS bay_name
       FROM job_cards jc
       LEFT JOIN work_orders wo ON jc.work_order_id = wo.id
@@ -72,7 +72,7 @@ router.get('/:id', async (req, res) => {
     const [jc] = await query(
       `SELECT jc.*, wo.work_order_number, wo.customer_name AS wo_customer_name,
               v.plate_number, v.make, v.model, v.year,
-              CONCAT(u.first_name,' ',u.last_name) AS foreman_name,
+              u.full_name AS foreman_name,
               sb.name AS bay_name
        FROM job_cards jc
        LEFT JOIN work_orders wo ON jc.work_order_id = wo.id

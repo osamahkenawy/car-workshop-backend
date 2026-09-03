@@ -121,10 +121,10 @@ router.get('/', async (req, res) => {
 
     let sql = `
       SELECT a.*,
-             c.name AS customer_full_name, c.phone AS customer_phone_db,
+             c.full_name AS customer_full_name, c.phone AS customer_phone_db,
              v.plate_number AS vehicle_plate_db, v.make, v.model,
              sb.name AS bay_name,
-             CONCAT(u.first_name,' ',u.last_name) AS advisor_full_name
+             u.full_name AS advisor_full_name
       FROM appointments a
       LEFT JOIN customers c  ON a.customer_id   = c.id
       LEFT JOIN vehicles  v  ON a.vehicle_id     = v.id
@@ -141,7 +141,7 @@ router.get('/', async (req, res) => {
     if (advisor_id) { sql += ' AND a.booked_by_user_id = ?'; params.push(advisor_id); }
     if (customer_id) { sql += ' AND a.customer_id = ?'; params.push(customer_id); }
     if (search) {
-      sql += ' AND (a.customer_name LIKE ? OR a.customer_phone LIKE ? OR c.name LIKE ?)';
+      sql += ' AND (a.customer_name LIKE ? OR a.customer_phone LIKE ? OR c.full_name LIKE ?)';
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
@@ -162,7 +162,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const [appt] = await query(
-      `SELECT a.*, c.name AS customer_full_name, v.plate_number, v.make, v.model
+      `SELECT a.*, c.full_name AS customer_full_name, v.plate_number, v.make, v.model
        FROM appointments a
        LEFT JOIN customers c ON a.customer_id = c.id
        LEFT JOIN vehicles  v ON a.vehicle_id  = v.id
@@ -332,10 +332,10 @@ router.get('/queue/today', async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     const rows = await query(
       `SELECT a.*,
-              c.name AS customer_full_name, c.phone AS customer_phone_db,
+              c.full_name AS customer_full_name, c.phone AS customer_phone_db,
               v.plate_number, v.make, v.model,
               sb.name AS bay_name,
-              CONCAT(u.first_name,' ',u.last_name) AS advisor_name
+              u.full_name AS advisor_name
        FROM appointments a
        LEFT JOIN customers c  ON a.customer_id   = c.id
        LEFT JOIN vehicles  v  ON a.vehicle_id     = v.id

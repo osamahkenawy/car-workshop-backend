@@ -58,7 +58,7 @@ router.get('/', async (req, res) => {
               c.phone     AS customer_phone,
               (SELECT COUNT(*)            FROM work_orders w WHERE w.vehicle_id = v.id AND w.workshop_id = v.workshop_id) AS wo_count,
               (SELECT MAX(w.created_at)   FROM work_orders w WHERE w.vehicle_id = v.id AND w.workshop_id = v.workshop_id) AS last_service_at,
-              (SELECT COALESCE(SUM(w.total_amount),0) FROM work_orders w WHERE w.vehicle_id = v.id AND w.workshop_id = v.workshop_id AND w.status = 'completed') AS total_spent
+              (SELECT COALESCE(SUM(COALESCE(NULLIF(w.total_amount,0), NULLIF(w.service_fee,0), 0)),0) FROM work_orders w WHERE w.vehicle_id = v.id AND w.workshop_id = v.workshop_id AND w.status = 'completed') AS total_spent
        FROM vehicles v
        LEFT JOIN customers c ON c.id = v.customer_id
        ${where} ORDER BY ${orderBy} LIMIT ${lim} OFFSET ${offset}`,
@@ -75,7 +75,9 @@ router.get('/', async (req, res) => {
     );
     const [woSummary] = await query(
       `SELECT COUNT(*) AS total_services,
-              COALESCE(SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END),0) AS total_service_value
+              COALESCE(SUM(CASE WHEN status = 'completed'
+                    THEN COALESCE(NULLIF(total_amount,0), NULLIF(service_fee,0), 0)
+                    ELSE 0 END),0) AS total_service_value
        FROM work_orders WHERE workshop_id = ? AND vehicle_id IS NOT NULL`,
       [req.workshopId]
     );

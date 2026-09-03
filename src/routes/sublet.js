@@ -171,7 +171,7 @@ proformaRouter.get('/', async (req, res) => {
     const { status, job_card_id, search } = req.query;
     let sql = `
       SELECT p.*, jc.job_card_number, wo.work_order_number,
-             c.name AS customer_full_name
+             c.full_name AS customer_full_name
       FROM proforma_invoices p
       LEFT JOIN job_cards jc ON p.job_card_id = jc.id
       LEFT JOIN work_orders wo ON p.work_order_id = wo.id
@@ -314,7 +314,7 @@ gatePassRouter.get('/', async (req, res) => {
     const { status, job_card_id } = req.query;
     let sql = `
       SELECT gp.*, jc.job_card_number, v.plate_number, v.make, v.model,
-             c.name AS customer_full_name
+             c.full_name AS customer_full_name
       FROM gate_passes gp
       LEFT JOIN job_cards jc ON gp.job_card_id = jc.id
       LEFT JOIN vehicles v   ON gp.vehicle_id  = v.id

@@ -36,6 +36,26 @@ const __dirname = path.dirname(__filename);
 const AMIRI_REGULAR = path.join(__dirname, '../../assets/fonts/Amiri-Regular.ttf');
 const AMIRI_BOLD = path.join(__dirname, '../../assets/fonts/Amiri-Bold.ttf');
 
+/**
+ * Pioneer brand mark, used when a workshop has not uploaded its own logo.
+ *
+ * Without this the sheet printed the workshop name as bare text and carried no
+ * branding at all. The file is cropped to the mark itself with a small even
+ * margin, so `fit` produces a predictable size — the original had 21% white
+ * padding top and bottom, which made any height you asked for come out a
+ * third smaller than expected.
+ *
+ * It is the light variant (dark mark on white): the sheet prints on white
+ * paper. The white-on-navy variant would lay a navy block across the header.
+ *
+ * Resolved from __dirname rather than the process cwd, because loadLogo()
+ * resolves relative paths against wherever node happened to be started.
+ */
+const PIONEER_LOGO = path.join(__dirname, '../../assets/brand/pioneer-logo.png');
+
+/** Aspect ratio of the bundled mark, so the header can reserve the right width. */
+const PIONEER_LOGO_ASPECT = 518 / 300;
+
 function hasArabic(str) {
   if (!str) return false;
   return /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/.test(str);
@@ -143,12 +163,25 @@ export async function generateServiceJobSheetPDF(res, { orders, tenant, template
   if (fs.existsSync(AMIRI_REGULAR)) doc.registerFont('Amiri', AMIRI_REGULAR);
   if (fs.existsSync(AMIRI_BOLD)) doc.registerFont('Amiri-Bold', AMIRI_BOLD);
 
-  // Pre-load workshop logo (try logo_url, then logo_url_white as fallback)
+  // Pre-load the logo: the workshop's own first, then the bundled Pioneer
+  // mark, so a sheet is never unbranded.
   let logoBuffer = null;
+  let logoAspect = null;
   if (template.show_logo) {
     logoBuffer = await loadLogo(tenant?.logo_url);
     if (!logoBuffer && tenant?.logo_url_white) {
       logoBuffer = await loadLogo(tenant.logo_url_white);
+    }
+    if (!logoBuffer) {
+      try {
+        if (fs.existsSync(PIONEER_LOGO)) {
+          logoBuffer = fs.readFileSync(PIONEER_LOGO);
+          logoAspect = PIONEER_LOGO_ASPECT;
+        }
+      } catch (e) {
+        // A missing brand asset must not stop a job sheet printing.
+        console.error('[JobSheet] Pioneer logo load failed:', e.message);
+      }
     }
   }
 
@@ -186,11 +219,25 @@ export async function generateServiceJobSheetPDF(res, { orders, tenant, template
     // ─────────────────────────────────────────────────────────
     let headerTextX = M;
     if (logoBuffer) {
-      try { doc.image(logoBuffer, M, y, { height: 14 }); } catch (_) {}
-      headerTextX = M + 36;
+      // `fit` rather than a bare height: an uploaded workshop logo can be any
+      // shape, and a tall narrow one asked for by height alone would run into
+      // the work order number on the right.
+      const LOGO_H = 16;
+      const LOGO_MAX_W = 42;
+      try {
+        doc.image(logoBuffer, M, y, { fit: [LOGO_MAX_W, LOGO_H], align: 'left', valign: 'top' });
+      } catch (_) {}
+      const drawnW = logoAspect
+        ? Math.min(LOGO_MAX_W, LOGO_H * logoAspect)
+        : LOGO_MAX_W;
+      headerTextX = M + drawnW + 6;
     }
     doc.fillColor(INK).fontSize(7).font(FB)
-       .text(ar(tenant?.name || 'Pioneer'), headerTextX, y + 2);
+       .text(ar(tenant?.name || 'Pioneer'), headerTextX, y + 5, {
+         width: RIGHT - 84 - headerTextX,
+         lineBreak: false,
+         ellipsis: true,
+       });
 
     // Work order number + date on right
     const createdDate = order.created_at

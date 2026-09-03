@@ -35,9 +35,9 @@ router.get('/', async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     let sql = `
       SELECT vrf.*,
-             c.name AS customer_full_name,
+             c.full_name AS customer_full_name,
              v.make, v.model, v.year,
-             CONCAT(u.first_name,' ',u.last_name) AS advisor_full_name
+             u.full_name AS advisor_full_name
       FROM vehicle_receiving_forms vrf
       LEFT JOIN customers c ON vrf.customer_id = c.id
       LEFT JOIN vehicles  v ON vrf.vehicle_id  = v.id
@@ -68,9 +68,9 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const [form] = await query(
-      `SELECT vrf.*, c.name AS customer_full_name, c.phone, c.email,
+      `SELECT vrf.*, c.full_name AS customer_full_name, c.phone, c.email,
               v.make, v.model, v.year, v.plate_number, v.vin,
-              CONCAT(u.first_name,' ',u.last_name) AS advisor_full_name
+              u.full_name AS advisor_full_name
        FROM vehicle_receiving_forms vrf
        LEFT JOIN customers c ON vrf.customer_id = c.id
        LEFT JOIN vehicles  v ON vrf.vehicle_id  = v.id
@@ -329,7 +329,7 @@ router.post('/:id/submit', async (req, res) => {
 router.get('/credit-facilities/list', async (req, res) => {
   try {
     const { status } = req.query;
-    let sql = `SELECT cf.*, c.name AS customer_name, c.phone
+    let sql = `SELECT cf.*, c.full_name AS customer_name, c.phone
                FROM credit_facilities cf
                JOIN customers c ON cf.customer_id = c.id
                WHERE cf.workshop_id = ?`;

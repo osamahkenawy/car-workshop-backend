@@ -54,7 +54,7 @@ router.get('/', async (req, res) => {
     const { status, customer_id, search, page = 1, limit = 30 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
     let sql = `
-      SELECT e.*, c.name AS customer_full_name, v.plate_number, v.make, v.model
+      SELECT e.*, c.full_name AS customer_full_name, v.plate_number, v.make, v.model
       FROM service_estimates e
       LEFT JOIN customers c ON e.customer_id = c.id
       LEFT JOIN vehicles v  ON e.vehicle_id  = v.id
@@ -87,7 +87,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const rows = await query(
-      `SELECT e.*, c.name AS customer_full_name, v.plate_number, v.make, v.model, v.year
+      `SELECT e.*, c.full_name AS customer_full_name, v.plate_number, v.make, v.model, v.year
        FROM service_estimates e
        LEFT JOIN customers c ON e.customer_id = c.id
        LEFT JOIN vehicles  v ON e.vehicle_id  = v.id
