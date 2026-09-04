@@ -274,6 +274,43 @@ router.patch('/:id/complete', async (req, res) => {
       }
     }
 
+    // Auto-advance the work order's status now that a walk-around has been
+    // signed off. Only nudges by one step and only from the safe pre-work
+    // states — a mechanic can still override via the normal status controls.
+    //  intake  : pending  \u2192 confirmed  (job accepted, ready to assign)
+    //  joint   : in_progress \u2192 inspection (post-repair QC)
+    try {
+      if (row.inspection_type === 'intake') {
+        const bump = await execute(
+          `UPDATE work_orders
+              SET status = 'confirmed'
+            WHERE id = ? AND workshop_id = ? AND status = 'pending'`,
+          [row.work_order_id, req.workshopId]
+        );
+        if (bump?.affectedRows > 0) {
+          await execute(
+            'INSERT INTO work_order_status_logs (work_order_id, status, changed_by, note, created_at) VALUES (?, ?, ?, ?, NOW())',
+            [row.work_order_id, 'confirmed', req.user.id, 'Auto-confirmed after intake inspection sign-off']
+          );
+        }
+      } else if (row.inspection_type === 'joint') {
+        const bump = await execute(
+          `UPDATE work_orders
+              SET status = 'inspection'
+            WHERE id = ? AND workshop_id = ? AND status = 'in_progress'`,
+          [row.work_order_id, req.workshopId]
+        );
+        if (bump?.affectedRows > 0) {
+          await execute(
+            'INSERT INTO work_order_status_logs (work_order_id, status, changed_by, note, created_at) VALUES (?, ?, ?, ?, NOW())',
+            [row.work_order_id, 'inspection', req.user.id, 'Auto-moved to inspection after joint walk-around']
+          );
+        }
+      }
+    } catch (e) {
+      console.error('[VehicleInspections] Auto-status bump failed:', e.message);
+    }
+
     const [updated] = await query('SELECT * FROM vehicle_inspections WHERE id = ?', [req.params.id]);
     return res.json({ success: true, data: parseMarks(updated) });
   } catch (err) {

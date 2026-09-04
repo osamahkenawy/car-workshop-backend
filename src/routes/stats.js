@@ -154,18 +154,23 @@ router.get('/', authMiddleware, async (req, res) => {
        GROUP BY z.id ORDER BY orders_count DESC, z.name ASC LIMIT 5`,
       [workshopId]
     );
-    // Top mechanics this month
+    // Top mechanics — jobs completed in the selected period. Also surface
+    // specialty so the dashboard row can show "Ali · Bodywork" instead of
+    // relying on the legacy vehicle_type/vehicle_plate columns.
     const topMechanics = await query(
-      `SELECT m.full_name, COUNT(o.id) as jobs_completed
+      `SELECT m.full_name, m.specialty, COUNT(o.id) as jobs_completed
        FROM work_orders o JOIN mechanics m ON o.mechanic_id = m.id
        WHERE o.workshop_id = ? AND o.status = 'completed'
-       AND MONTH(o.completed_at) = MONTH(CURDATE())
+       AND ${inPeriod('o.completed_at')}
        GROUP BY m.id ORDER BY jobs_completed DESC LIMIT 5`,
       [workshopId]
     );
-    // Recent work orders
+    // Recent work orders — surface vehicle info so the dashboard row can show
+    // "Toyota Corolla · 49392" instead of falling back to "Unassigned" for
+    // legacy/imported work orders that never got a mechanic assigned.
     const recentWorkOrders = await query(
       `SELECT o.id, o.work_order_number, o.status, o.customer_name as recipient_name,
+              o.customer_name, o.vehicle_make, o.vehicle_model, o.vehicle_plate_number,
               o.service_fee, o.created_at, m.full_name as mechanic_name
        FROM work_orders o LEFT JOIN mechanics m ON o.mechanic_id = m.id
        WHERE o.workshop_id = ? ORDER BY o.created_at DESC LIMIT 10`,
