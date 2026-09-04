@@ -450,7 +450,153 @@ export async function generateServiceJobSheetPDF(res, { orders, tenant, template
       doc.fillColor(INK).fontSize(5).font(FB)
          .text(`${idx + 1} / ${pageCount}`, RIGHT - 30, ftY, { width: 30, align: 'right' });
     }
+
+    // ─────────────────────────────────────────────────────────
+    // 11. INSPECTION SHEET — extra A4 page with the 5 car-diagram views
+    //     and any damage markers recorded during intake / joint inspection.
+    //     Only added when the work order actually has an inspection with marks.
+    // ─────────────────────────────────────────────────────────
+    if (order._inspection && Array.isArray(order._inspection.marks) && order._inspection.marks.length > 0) {
+      renderInspectionPage(doc, order, tenant);
+    }
   }
 
   doc.end();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INSPECTION SHEET — dedicated A4 page: header + 5 car diagrams with
+// damage markers overlaid, plus a legend of the codes used.
+// ═══════════════════════════════════════════════════════════════
+const INSPECTION_DIR = path.join(__dirname, '../../assets/inspection');
+const INSPECTION_VIEWS = [
+  { key: 'top',   label: 'TOP / ROOF',        file: 'top-roof.png' },
+  { key: 'left',  label: 'DRIVER SIDE',       file: 'driver-side.png' },
+  { key: 'right', label: 'PASSENGER SIDE',    file: 'passenger-side.png' },
+  { key: 'front', label: 'FRONT',             file: 'front.png' },
+  { key: 'rear',  label: 'REAR',              file: 'rear.png' },
+];
+const DAMAGE_LEGEND = {
+  SH: 'Shattered', WS: 'Windshield', OX: 'Oxidized',   CF: 'Cracked/Faded',
+  DS: 'Deep Scratch', BD: 'Bent',    RP: 'Repainted',  UD: 'Unpainted Damage',
+  PT: 'Paint Transfer', PC: 'Paint Chip', GS: 'Glass Scratch', GC: 'Glass Crack',
+  DD: 'Dents/Dings', SS: 'Surface Scratch', CR: 'Crack', WD: 'Water Damage',
+  GO: 'Gouge', LM: 'Loose Molding',
+};
+const DAMAGE_COLORS = {
+  SH: '#6757e8', WS: '#4f87f7', OX: '#17b890', CF: '#ff8a4c',
+  DS: '#ef476f', BD: '#8f62d6', RP: '#26b9d5', UD: '#f3b63f',
+  PT: '#6d92ea', PC: '#9e62dc', GS: '#67bd52', GC: '#7bcf86',
+  DD: '#ff825c', SS: '#6678e8', CR: '#f45f7c', WD: '#4d91e8',
+  GO: '#b77947', LM: '#94a3b8',
+};
+
+function renderInspectionPage(doc, order, tenant) {
+  // A4 portrait so a workshop can print it on standard paper.
+  const A4W = 595.28, A4H = 841.89;
+  const M = 32;
+  doc.addPage({ margin: 0, size: [A4W, A4H] });
+  doc.rect(0, 0, A4W, A4H).fill('#ffffff');
+
+  const _txt = [order.customer_name, order.vehicle_make, order.vehicle_model, tenant?.name].filter(Boolean).join('');
+  const FR = hasArabic(_txt) ? 'Amiri' : 'Helvetica';
+  const FB = hasArabic(_txt) ? 'Amiri-Bold' : 'Helvetica-Bold';
+
+  const insp = order._inspection || {};
+  const marks = Array.isArray(insp.marks) ? insp.marks : [];
+  const inspTypeLabel = insp.inspection_type === 'joint' ? 'Joint Inspection'
+                      : insp.inspection_type === 'qc' ? 'QC Inspection'
+                      : 'Intake Inspection';
+
+  let y = M;
+
+  doc.fillColor('#111827').fontSize(14).font(FB)
+     .text('Vehicle Inspection Sheet', M, y);
+  doc.fillColor('#6b7280').fontSize(9).font(FR)
+     .text(`${inspTypeLabel}   ·   ${order.work_order_number || ''}`, M, y + 18);
+  const headerDate = (insp.completed_at || order.created_at)
+    ? new Date(insp.completed_at || order.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    : '';
+  doc.fillColor('#6b7280').fontSize(9).font(FR)
+     .text(headerDate, A4W - M - 120, y + 4, { width: 120, align: 'right' });
+  y += 40;
+  doc.moveTo(M, y).lineTo(A4W - M, y).strokeColor('#d1d5db').lineWidth(0.5).stroke();
+  y += 12;
+
+  const infoCol = (label, val, x, w) => {
+    doc.fillColor('#6b7280').fontSize(7).font(FB).text(label, x, y, { width: w });
+    doc.fillColor('#111827').fontSize(9.5).font(FB).text(ar(val || '—'), x, y + 10, { width: w, ellipsis: true, lineBreak: false });
+  };
+  const infoW = (A4W - 2 * M) / 4;
+  infoCol('CUSTOMER',  insp.customer_name || order.customer_name || order.customer_full_name, M, infoW);
+  infoCol('VEHICLE',   [insp.vehicle_make || order.vehicle_make, insp.vehicle_model || order.vehicle_model, insp.vehicle_year || order.vehicle_year].filter(Boolean).join(' '), M + infoW, infoW);
+  infoCol('PLATE',     insp.plate_number || order.vehicle_plate, M + infoW * 2, infoW);
+  infoCol('ODOMETER',  insp.odometer ? `${Number(insp.odometer).toLocaleString()} km` : '', M + infoW * 3, infoW);
+  y += 30;
+
+  // 5 views in a 3-column x 2-row grid.
+  const cols = 3, gap = 10;
+  const cellW = (A4W - 2 * M - (cols - 1) * gap) / cols;
+  const cellH = cellW * 0.75;
+  for (let i = 0; i < INSPECTION_VIEWS.length; i++) {
+    const view = INSPECTION_VIEWS[i];
+    const r = Math.floor(i / cols), c = i % cols;
+    const x = M + c * (cellW + gap);
+    const cy = y + r * (cellH + 32);
+    doc.rect(x, cy, cellW, cellH).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+    const imgPath = path.join(INSPECTION_DIR, view.file);
+    if (fs.existsSync(imgPath)) {
+      try {
+        // fit inside cell with a 4pt inner margin
+        doc.image(imgPath, x + 4, cy + 4, { fit: [cellW - 8, cellH - 8], align: 'center', valign: 'center' });
+      } catch (_) {}
+    }
+    // Overlay marks for this view
+    const viewMarks = marks.filter(m => m.view === view.key);
+    for (const m of viewMarks) {
+      if (typeof m.x !== 'number' || typeof m.y !== 'number') continue;
+      const mx = x + 4 + (cellW - 8) * m.x;
+      const my = cy + 4 + (cellH - 8) * m.y;
+      const color = DAMAGE_COLORS[m.code] || '#dc2626';
+      doc.circle(mx, my, 5).fill(color);
+      doc.fillColor('#ffffff').fontSize(6).font(FB)
+         .text(m.code || '?', mx - 6, my - 3, { width: 12, align: 'center', lineBreak: false });
+    }
+    doc.fillColor('#6b7280').fontSize(7).font(FB)
+       .text(view.label, x, cy + cellH + 4, { width: cellW, align: 'center' });
+    doc.fillColor('#9ca3af').fontSize(6.5).font(FR)
+       .text(`${viewMarks.length} mark${viewMarks.length === 1 ? '' : 's'}`, x, cy + cellH + 15, { width: cellW, align: 'center' });
+  }
+  y += Math.ceil(INSPECTION_VIEWS.length / cols) * (cellH + 32) + 8;
+
+  // Legend of codes actually used, so the printed page is self-contained.
+  const usedCodes = [...new Set(marks.map(m => m.code).filter(Boolean))];
+  if (usedCodes.length > 0) {
+    doc.moveTo(M, y).lineTo(A4W - M, y).strokeColor('#d1d5db').lineWidth(0.5).stroke();
+    y += 8;
+    doc.fillColor('#6b7280').fontSize(8).font(FB).text('LEGEND', M, y);
+    y += 12;
+    const chipW = (A4W - 2 * M) / 4;
+    usedCodes.forEach((code, i) => {
+      const cx = M + (i % 4) * chipW;
+      const cy = y + Math.floor(i / 4) * 18;
+      doc.circle(cx + 6, cy + 5, 4).fill(DAMAGE_COLORS[code] || '#dc2626');
+      doc.fillColor('#111827').fontSize(8.5).font(FB).text(code, cx + 14, cy + 1, { width: 22, lineBreak: false });
+      doc.fillColor('#4b5563').fontSize(8).font(FR).text(DAMAGE_LEGEND[code] || code, cx + 36, cy + 1, { width: chipW - 40, lineBreak: false });
+    });
+    y += Math.ceil(usedCodes.length / 4) * 18 + 4;
+  }
+
+  // Notes + signature line at the bottom of the page.
+  if (insp.notes) {
+    y += 8;
+    doc.fillColor('#6b7280').fontSize(8).font(FB).text('NOTES', M, y);
+    y += 10;
+    doc.fillColor('#111827').fontSize(9).font(FR).text(ar(insp.notes), M, y, { width: A4W - 2 * M });
+  }
+  const sigY = A4H - 60;
+  doc.moveTo(M, sigY).lineTo(M + 200, sigY).strokeColor('#111827').lineWidth(0.6).stroke();
+  doc.fillColor('#6b7280').fontSize(7).font(FR).text('Customer signature', M, sigY + 4);
+  doc.moveTo(A4W - M - 200, sigY).lineTo(A4W - M, sigY).strokeColor('#111827').lineWidth(0.6).stroke();
+  doc.fillColor('#6b7280').fontSize(7).font(FR).text('Inspector signature', A4W - M - 200, sigY + 4);
 }

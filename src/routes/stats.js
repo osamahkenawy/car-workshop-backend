@@ -137,11 +137,23 @@ router.get('/', authMiddleware, async (req, res) => {
        GROUP BY DATE(created_at) ORDER BY date`,
       [workshopId]
     );
-    // Status breakdown for the period the dashboard is showing, so the donut
-    // and the KPI tiles above it describe the same window.
+    // Status breakdown — all-time snapshot of the workshop's pipeline. Kept
+    // period-independent so the donut and totals still populate on days with
+    // no new work (which is the norm for freshly imported historical data).
     const workOrdersByStatus = await query(
       `SELECT status, COUNT(*) as count FROM work_orders
-        WHERE workshop_id = ? AND ${inPeriod('created_at')} GROUP BY status`,
+        WHERE workshop_id = ? GROUP BY status`,
+      [workshopId]
+    );
+    // All-time totals for the headline tiles — the period counters above stay
+    // for the delta badges, but the dashboard needs at least one always-populated
+    // total to be useful for a workshop with a big backlog and few new bookings.
+    const [totalsAllTime] = await query(
+      `SELECT COUNT(*) as total,
+              SUM(status = 'completed') as completed,
+              SUM(status IN ('assigned','accepted','in_progress','inspection','ready_for_pickup')) as active,
+              COALESCE(SUM(CASE WHEN status = 'completed' THEN service_fee - discount ELSE 0 END), 0) as revenue
+       FROM work_orders WHERE workshop_id = ?`,
       [workshopId]
     );
     // Top service bays — show all active bays, LEFT JOIN so bays with 0 work orders still appear
@@ -168,11 +180,17 @@ router.get('/', authMiddleware, async (req, res) => {
     // Recent work orders — surface vehicle info so the dashboard row can show
     // "Toyota Corolla · 49392" instead of falling back to "Unassigned" for
     // legacy/imported work orders that never got a mechanic assigned.
+    // make/model/plate live on `vehicles`, not on work_orders — selecting them
+    // off `o` threw ER_BAD_FIELD_ERROR, which 500'd this whole endpoint and so
+    // blanked every tile on the dashboard.
     const recentWorkOrders = await query(
       `SELECT o.id, o.work_order_number, o.status, o.customer_name as recipient_name,
-              o.customer_name, o.vehicle_make, o.vehicle_model, o.vehicle_plate_number,
+              o.customer_name, v.make AS vehicle_make, v.model AS vehicle_model,
+              v.plate_number AS vehicle_plate_number,
               o.service_fee, o.created_at, m.full_name as mechanic_name
-       FROM work_orders o LEFT JOIN mechanics m ON o.mechanic_id = m.id
+       FROM work_orders o
+       LEFT JOIN mechanics m ON o.mechanic_id = m.id
+       LEFT JOIN vehicles v ON o.vehicle_id = v.id
        WHERE o.workshop_id = ? ORDER BY o.created_at DESC LIMIT 10`,
       [workshopId]
     );
@@ -283,6 +301,13 @@ router.get('/', authMiddleware, async (req, res) => {
         },
         // ── Flat KPI object the Dashboard frontend expects ──
         kpis: {
+          // All-time headline figures — surface the workshop's real backlog
+          // regardless of the selected period, so a freshly imported dataset
+          // isn't hidden behind a "This Month = 0" filter.
+          total_orders_all_time:     parseInt(totalsAllTime.total)     || 0,
+          completed_orders_all_time: parseInt(totalsAllTime.completed) || 0,
+          active_orders_all_time:    parseInt(totalsAllTime.active)    || 0,
+          revenue_all_time:          parseFloat(totalsAllTime.revenue) || 0,
           // Period-scoped headline figures (what the dashboard tiles show)
           orders_period:     ordersPeriod.count || 0,
           completed_period:  completedPeriod.count || 0,

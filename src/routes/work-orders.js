@@ -557,6 +557,10 @@ router.get('/:id/label', async (req, res) => {
     const [itemCount] = await query('SELECT COUNT(*) as cnt FROM work_order_items WHERE work_order_id = ?', [order.id]);
     order.item_count = itemCount?.cnt || 0;
 
+    // Latest completed inspection (intake preferred) — attached so the PDF
+    // generator can append the walk-around damage sheet.
+    order._inspection = await fetchLatestInspection(order.id, req.workshopId);
+
     const [workshop] = await query('SELECT * FROM workshops WHERE id = ?', [req.workshopId]);
 
     let template = null;
@@ -572,6 +576,30 @@ router.get('/:id/label', async (req, res) => {
     if (!res.headersSent) res.status(500).json({ success: false, message: 'Failed to generate label' });
   }
 });
+
+// Helper: pull the most recent completed inspection for a work order and
+// parse its JSON marks payload once. Returns null if none exists.
+async function fetchLatestInspection(workOrderId, workshopId) {
+  try {
+    const [row] = await query(
+      `SELECT id, inspection_type, marks, notes, completed_at, plate_number, odometer,
+              customer_name, vehicle_make, vehicle_model, vehicle_year
+         FROM vehicle_inspections
+        WHERE work_order_id = ? AND workshop_id = ? AND status = 'completed'
+        ORDER BY inspection_type = 'intake' DESC, completed_at DESC LIMIT 1`,
+      [workOrderId, workshopId]
+    );
+    if (!row) return null;
+    let marks = [];
+    if (row.marks) {
+      try { marks = typeof row.marks === 'string' ? JSON.parse(row.marks) : row.marks; } catch (_) { marks = []; }
+    }
+    return { ...row, marks: Array.isArray(marks) ? marks : [] };
+  } catch (e) {
+    console.error('[WorkOrders] inspection fetch failed:', e.message);
+    return null;
+  }
+}
 
 // POST /api/work-orders/labels — batch job-sheet/label PDF for multiple work orders
 router.post('/labels', async (req, res) => {
@@ -594,6 +622,7 @@ router.post('/labels', async (req, res) => {
     for (const order of orders) {
       const [itemCount] = await query('SELECT COUNT(*) as cnt FROM work_order_items WHERE work_order_id = ?', [order.id]);
       order.item_count = itemCount?.cnt || 0;
+      order._inspection = await fetchLatestInspection(order.id, req.workshopId);
     }
 
     const [workshop] = await query('SELECT * FROM workshops WHERE id = ?', [req.workshopId]);
