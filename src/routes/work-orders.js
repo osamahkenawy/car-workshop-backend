@@ -173,7 +173,7 @@ router.get('/', async (req, res) => {
        LEFT JOIN work_order_assignments wa ON wa.work_order_id = wo.id AND wa.mechanic_id = wo.mechanic_id AND wa.is_current = TRUE
        LEFT JOIN (SELECT work_order_id, MIN(created_at) AS created_at FROM work_order_status_logs WHERE status = 'assigned' GROUP BY work_order_id) wsl_assign ON wsl_assign.work_order_id = wo.id
        ${where} ORDER BY ${(() => {
-         const validCols = { date:'wo.created_at', cash:'wo.cash_amount', bay:'b.name', status:'wo.status', customer:'wo.customer_name', work_order_number:'wo.work_order_number', completed_at:'wo.completed_at' };
+         const validCols = { date:'wo.created_at', cash:'wo.cash_amount', bay:'b.name', status:'wo.status', customer:'wo.customer_name', work_order_number:'wo.work_order_number', completed_at:'wo.completed_at', total_amount:'wo.total_amount' };
          const col = validCols[sort_by];
          if (col) { const d = sort_dir === 'asc' ? 'ASC' : 'DESC'; return `${col} ${d}`; }
          return 'GREATEST(COALESCE(wo.completed_at, wo.created_at), COALESCE(wo.failed_at, wo.created_at), wo.created_at) DESC';
