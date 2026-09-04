@@ -19,6 +19,9 @@ function buildDateFilter(req) {
   const maxRetentionDays = req.subscription?.features?.data_retention_days
     || PLAN_FEATURES[planSlug]?.data_retention_days || 30;
   const days = Math.min(Math.max(parseInt(period) || 30, 1), maxRetentionDays);
+  if (period === 'all') {
+    return { dateFilter: '1=1', dateFilterJoin: '1=1', dateParams: [] };
+  }
   if (date_from && date_to && DATE_RE.test(date_from) && DATE_RE.test(date_to)) {
     // Clamp date_from to not exceed retention limit
     const earliest = new Date(Date.now() - maxRetentionDays * 86400000).toISOString().slice(0, 10);
@@ -45,7 +48,13 @@ router.get('/', authMiddleware, async (req, res) => {
     let dateFilterJoin;    // SQL fragment for o.created_at (JOIN queries)
     let dateParams;        // Positional params that match the placeholders above
 
-    if (date_from && date_to && DATE_RE.test(date_from) && DATE_RE.test(date_to)) {
+    if (period === 'all') {
+      // "All time" — bypass the date window; retention still applies to purges,
+      // but the workshop needs to be able to see everything the DB actually holds.
+      dateFilter     = '1=1';
+      dateFilterJoin = '1=1';
+      dateParams     = [];
+    } else if (date_from && date_to && DATE_RE.test(date_from) && DATE_RE.test(date_to)) {
       dateFilter     = 'DATE(created_at) BETWEEN ? AND ?';
       dateFilterJoin = 'DATE(o.created_at) BETWEEN ? AND ?';
       dateParams     = [date_from, date_to];
@@ -95,7 +104,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
     // Work orders by service bay
     const byZone = await query(
-      `SELECT z.name as zone, COUNT(o.id) as orders,
+      `SELECT z.name as bay, COUNT(o.id) as orders,
               SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) as delivered,
               COALESCE(SUM(o.service_fee - o.discount), 0) as revenue
        FROM work_orders o JOIN service_bays z ON o.service_bay_id = z.id
@@ -181,7 +190,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
     // Service time by service bay (#51)
     const serviceTimeByZone = await query(
-      `SELECT z.name as zone,
+      `SELECT z.name as bay,
               COUNT(o.id) as delivered,
               ROUND(AVG(TIMESTAMPDIFF(MINUTE, o.created_at, o.completed_at))) as avg_minutes,
               ROUND(MIN(TIMESTAMPDIFF(MINUTE, o.created_at, o.completed_at))) as min_minutes,
@@ -218,7 +227,11 @@ router.get('/performance', authMiddleware, async (req, res) => {
 
     // Build date filter
     let dateFilter, dateFilterJoin, dateParams;
-    if (date_from && date_to && DATE_RE.test(date_from) && DATE_RE.test(date_to)) {
+    if (period === 'all') {
+      dateFilter     = '1=1';
+      dateFilterJoin = '1=1';
+      dateParams     = [];
+    } else if (date_from && date_to && DATE_RE.test(date_from) && DATE_RE.test(date_to)) {
       dateFilter     = 'DATE(created_at) BETWEEN ? AND ?';
       dateFilterJoin = 'DATE(o.created_at) BETWEEN ? AND ?';
       dateParams     = [date_from, date_to];
@@ -368,7 +381,11 @@ router.get('/financial', authMiddleware, async (req, res) => {
     const days = Math.min(Math.max(parseInt(period) || 30, 1), 365);
 
     let dateFilter, dateFilterJoin, dateParams;
-    if (date_from && date_to && DATE_RE.test(date_from) && DATE_RE.test(date_to)) {
+    if (period === 'all') {
+      dateFilter     = '1=1';
+      dateFilterJoin = '1=1';
+      dateParams     = [];
+    } else if (date_from && date_to && DATE_RE.test(date_from) && DATE_RE.test(date_to)) {
       dateFilter     = 'DATE(created_at) BETWEEN ? AND ?';
       dateFilterJoin = 'DATE(o.created_at) BETWEEN ? AND ?';
       dateParams     = [date_from, date_to];
@@ -419,7 +436,7 @@ router.get('/financial', authMiddleware, async (req, res) => {
 
     // 4) Revenue by service bay
     const revenueByZone = await query(
-      `SELECT z.name as zone,
+      `SELECT z.name as bay,
               COUNT(o.id) as orders,
               COALESCE(SUM(o.service_fee - o.discount), 0) as revenue,
               COALESCE(SUM(CASE WHEN o.payment_method = 'cash' THEN o.cash_amount ELSE 0 END), 0) as cod_total
