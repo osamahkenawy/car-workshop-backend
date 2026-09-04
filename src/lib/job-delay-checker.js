@@ -73,7 +73,7 @@ async function checkJobDelays() {
   const overdueOrders = await query(`
     SELECT o.id, o.work_order_number, o.workshop_id, o.mechanic_id, o.status,
            o.customer_name, o.scheduled_at,
-           o.estimated_completion_at, o.created_at, o.picked_up_at,
+           o.estimated_completion_at, o.created_at, o.started_at,
            d.full_name as mechanic_name, d.user_id as mechanic_user_id
     FROM work_orders o
     LEFT JOIN mechanics d ON o.mechanic_id = d.id
@@ -88,7 +88,7 @@ async function checkJobDelays() {
   const stuckAssigned = await query(`
     SELECT o.id, o.work_order_number, o.workshop_id, o.mechanic_id, o.status,
            o.customer_name, o.scheduled_at,
-           o.estimated_completion_at, o.created_at, o.picked_up_at,
+           o.estimated_completion_at, o.created_at, o.started_at,
            d.full_name as mechanic_name, d.user_id as mechanic_user_id,
            TIMESTAMPDIFF(HOUR, COALESCE(
              (SELECT MAX(osl.created_at) FROM work_order_status_logs osl WHERE osl.work_order_id = o.id),
@@ -108,15 +108,15 @@ async function checkJobDelays() {
   const stuckInTransit = await query(`
     SELECT o.id, o.work_order_number, o.workshop_id, o.mechanic_id, o.status,
            o.customer_name, o.scheduled_at,
-           o.estimated_completion_at, o.created_at, o.picked_up_at,
+           o.estimated_completion_at, o.created_at, o.started_at,
            d.full_name as mechanic_name, d.user_id as mechanic_user_id,
-           TIMESTAMPDIFF(HOUR, COALESCE(o.picked_up_at, o.created_at), NOW()) as hours_in_transit
+           TIMESTAMPDIFF(HOUR, COALESCE(o.started_at, o.created_at), NOW()) as hours_in_transit
     FROM work_orders o
     LEFT JOIN mechanics d ON o.mechanic_id = d.id
     WHERE o.status IN ('in_progress', 'ready_for_pickup')
       AND o.estimated_completion_at IS NULL
       AND o.scheduled_at IS NULL
-      AND TIMESTAMPDIFF(HOUR, COALESCE(o.picked_up_at, o.created_at), NOW()) >= ?
+      AND TIMESTAMPDIFF(HOUR, COALESCE(o.started_at, o.created_at), NOW()) >= ?
   `, [DELAY_THRESHOLDS.in_transit_too_long]);
 
   // Merge all delayed work orders, deduplicate by work order id
