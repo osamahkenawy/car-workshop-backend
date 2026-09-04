@@ -192,13 +192,17 @@ async function cmdCheck() {
   const invoices  = readCsv('invoices.csv');
   const woItems   = readCsv('workorder_items.csv');
   const invItems  = readCsv('invoice_items.csv');
+  // mechanics.csv is optional — added later
+  let mechanics = [];
+  try { mechanics = readCsv('mechanics.csv'); } catch { /* absent = ok */ }
 
   console.log('Row counts:');
   console.log(`  customers.csv        ${customers.length}`);
   console.log(`  vehicles.csv         ${vehicles.length}`);
   console.log(`  invoices.csv (WOs)   ${invoices.length}`);
   console.log(`  workorder_items.csv  ${woItems.length}`);
-  console.log(`  invoice_items.csv    ${invItems.length}\n`);
+  console.log(`  invoice_items.csv    ${invItems.length}`);
+  console.log(`  mechanics.csv        ${mechanics.length}\n`);
 
   // ── Party-code linkage gap
   const custParty = new Set(customers.map(c => c.SOURCE_PARTY_CODE).filter(Boolean));
@@ -603,6 +607,7 @@ async function cmdVerify() {
   await q('customers imported',   `SELECT COUNT(*) n FROM customers WHERE workshop_id=? AND notes IS NOT NULL AND JSON_VALID(notes)=1 AND JSON_EXTRACT(notes,'$.src')=?`, [WORKSHOP_ID, SRC]);
   await q('  of which auto-provisioned fleet',
                                    `SELECT COUNT(*) n FROM customers WHERE workshop_id=? AND notes IS NOT NULL AND JSON_VALID(notes)=1 AND JSON_EXTRACT(notes,'$.kind')='auto_fleet'`, [WORKSHOP_ID]);
+  await q('mechanics imported',    `SELECT COUNT(*) n FROM mechanics WHERE workshop_id=? AND notes IS NOT NULL AND JSON_VALID(notes)=1 AND JSON_EXTRACT(notes,'$.src')=?`, [WORKSHOP_ID, SRC]);
   await q('vehicles imported',     `SELECT COUNT(*) n FROM vehicles WHERE workshop_id=? AND notes IS NOT NULL AND JSON_VALID(notes)=1 AND JSON_EXTRACT(notes,'$.src')=?`, [WORKSHOP_ID, SRC]);
   await q('work orders imported',  `SELECT COUNT(*) n FROM work_orders WHERE workshop_id=? AND notes IS NOT NULL AND JSON_VALID(notes)=1 AND JSON_EXTRACT(notes,'$.src')=?`, [WORKSHOP_ID, SRC]);
   await q('invoices imported',     `SELECT COUNT(*) n FROM invoices WHERE workshop_id=? AND notes IS NOT NULL AND JSON_VALID(notes)=1 AND JSON_EXTRACT(notes,'$.src')=?`, [WORKSHOP_ID, SRC]);
@@ -641,8 +646,9 @@ async function cmdRollback(scope = 'all') {
     'work-orders': `DELETE FROM work_orders WHERE workshop_id=? AND notes IS NOT NULL AND JSON_VALID(notes)=1 AND JSON_EXTRACT(notes,'$.src')=?`,
     'vehicles':    `DELETE FROM vehicles WHERE workshop_id=? AND notes IS NOT NULL AND JSON_VALID(notes)=1 AND JSON_EXTRACT(notes,'$.src')=?`,
     'customers':   `DELETE FROM customers WHERE workshop_id=? AND notes IS NOT NULL AND JSON_VALID(notes)=1 AND JSON_EXTRACT(notes,'$.src')=?`,
+    'mechanics':   `DELETE FROM mechanics WHERE workshop_id=? AND notes IS NOT NULL AND JSON_VALID(notes)=1 AND JSON_EXTRACT(notes,'$.src')=?`,
   };
-  const order = ['inv-items','wo-items','invoices','work-orders','vehicles','customers'];
+  const order = ['inv-items','wo-items','invoices','work-orders','vehicles','customers','mechanics'];
   const run = scope === 'all' ? order : [scope];
   for (const key of run) {
     if (!targets[key]) { console.log(`unknown scope: ${key}`); continue; }
@@ -693,10 +699,76 @@ async function cmdAmounts() {
   process.exit(0);
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// MECHANICS — imports staff from mechanics.csv. Source has no phone column,
+// so we insert '-' as a placeholder (the schema requires phone NOT NULL).
+// Designation is mapped to the target `specialty` enum where possible.
+// ══════════════════════════════════════════════════════════════════════════
+const DESIGNATION_TO_SPECIALTY = {
+  MECHANIC: 'general', MECHANICAL: 'general', 'TEAM LEADER - MECHANIC': 'general',
+  FOREMAN: 'general', 'TEAM LEADER': 'general', SUPERVISOR: 'general', 'SUPRERVISOR': 'general',
+  'WORKSHOP MANAGER': 'general', 'GENERAL MANAGER': 'general',
+  PAINTER: 'bodywork', DENTER: 'bodywork',
+  'BODYSHOP TEAM LEADER': 'bodywork', 'TEAM LEADER - BODYSHOP': 'bodywork',
+  ELECTRICIAN: 'electrical', 'TEAM LEADER - ELECTRICIAN': 'electrical',
+  'TYRE TECHNICIAN': 'tires',
+  TESTER: 'diagnostics', ESTIMATOR: 'diagnostics',
+};
+
+async function cmdMechanics() {
+  console.log('\n══ Loading mechanics ══════════════════════════════════════════════════\n');
+  const rows = readCsv('mechanics.csv');
+  const bridge = await loadBridge('mechanics');
+  console.log(`Already imported: ${bridge.size} mechanics`);
+
+  const validStatus = new Set(['available','busy','offline','on_break']);
+  const toInsert = [];
+  let skipped = 0;
+
+  for (const m of rows) {
+    const srcId = nullish(m.SOURCE_MECHANIC_ID);
+    if (!srcId || bridge.has(srcId)) continue;
+
+    const fullName = nullishName(m.FULL_NAME);
+    if (!fullName) { skipped++; continue; }
+
+    const designation = (nullish(m.DESIGNATION) || '').toUpperCase();
+    const specialty = DESIGNATION_TO_SPECIALTY[designation] || 'general';
+    const status = validStatus.has(nullish(m.TARGET_STATUS)) ? m.TARGET_STATUS : 'offline';
+    const rate = Number.isFinite(+m.RATE_PER_HOUR) && +m.RATE_PER_HOUR > 0 ? +m.RATE_PER_HOUR : null;
+
+    toInsert.push([
+      WORKSHOP_ID, fullName,
+      '-',                                   // phone (required by schema, not in source)
+      null,                                  // email
+      nullish(m.EMPLOYEE_CODE),              // license_number = employee code
+      specialty, status, true,
+      noteFor(srcId, {
+        designation: nullish(m.DESIGNATION),
+        employee_code: nullish(m.EMPLOYEE_CODE),
+        shift:      nullish(m.SHIFT_CODE),
+        cost_code:  nullish(m.COST_CODE),
+        supervisor: nullish(m.SUPERVISOR_CODE),
+        rate_per_hour: rate,
+        user_code:  nullish(m.USER_CODE),
+      }),
+    ]);
+  }
+
+  await bulkInsert(
+    'mechanics',
+    ['workshop_id','full_name','phone','email','license_number','specialty','status','is_active','notes'],
+    toInsert
+  );
+  if (skipped) console.log(`   ${skipped} rows skipped (no name)`);
+  process.exit(0);
+}
+
 // ── entrypoint
 const [cmd, arg] = process.argv.slice(2);
 const dispatch = {
   check: cmdCheck, customers: cmdCustomers, vehicles: cmdVehicles,
+  mechanics: cmdMechanics,
   'work-orders': cmdWorkOrders, invoices: cmdInvoices,
   'wo-items': cmdWoItems, 'inv-items': cmdInvItems,
   amounts: cmdAmounts,
@@ -705,7 +777,7 @@ const dispatch = {
     // Run each stage in order by spawning ourselves — keeps memory bounded
     // across the big line-item files.
     const { spawnSync } = await import('node:child_process');
-    for (const step of ['customers','vehicles','work-orders','invoices','wo-items','inv-items','amounts','verify']) {
+    for (const step of ['customers','mechanics','vehicles','work-orders','invoices','wo-items','inv-items','amounts','verify']) {
       console.log(`\n══════ ${step} ══════`);
       const r = spawnSync('node', [path.join(__dirname, 'migrate.mjs'), step], { stdio: 'inherit' });
       if (r.status !== 0) { console.error(`Step "${step}" failed`); process.exit(r.status); }
