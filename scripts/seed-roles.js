@@ -40,7 +40,7 @@ const KNOWN_MODULES = new Set([
   'mechanics', 'job-assignment', 'service-status', 'warranty-claims',
   'crm-customers', 'crm-reminders', 'crm-tasks', 'service-bays', 'pricing',
   'inventory', 'invoices', 'cash-payment', 'wallet', 'reports', 'performance',
-  'customer-feedback', 'notifications', 'settings', 'integrations',
+  'customer-feedback', 'customer-experience', 'notifications', 'settings', 'integrations',
   // technician app — deliberately not granted to office roles
   'mechanic-dashboard', 'my-work-orders', 'mechanic-scan',
 ]);
@@ -61,7 +61,7 @@ const ROLES = [
       ...BASE, 'enquiries', 'work-orders', 'job-assignment', 'service-status',
       'customers', 'vehicles', 'mechanics', 'service-bays', 'parts', 'inventory',
       'invoices', 'cash-payment', 'wallet', 'pricing', 'warranty-claims',
-      'customer-feedback', 'reports', 'performance',
+      'customer-feedback', 'customer-experience', 'reports', 'performance',
       'crm-customers', 'crm-reminders', 'crm-tasks', 'settings', 'integrations',
     ],
     user: { full_name: 'General Manager', username: 'general.manager' },
@@ -75,7 +75,7 @@ const ROLES = [
     modules: [
       ...BASE, 'enquiries', 'work-orders', 'job-assignment', 'service-status',
       'customers', 'vehicles', 'mechanics', 'service-bays', 'invoices',
-      'warranty-claims', 'customer-feedback', 'reports', 'performance',
+      'warranty-claims', 'customer-feedback', 'customer-experience', 'reports', 'performance',
       'crm-customers', 'crm-reminders', 'crm-tasks',
     ],
     // "no need to part and access" — parts and inventory are left out on
@@ -91,7 +91,7 @@ const ROLES = [
     description: 'Front desk. Creates and assigns jobs, raises invoices and quotations.',
     modules: [
       ...BASE, 'enquiries', 'work-orders', 'job-assignment', 'service-status',
-      'customers', 'vehicles', 'invoices', 'customer-feedback',
+      'customers', 'vehicles', 'invoices', 'customer-feedback', 'customer-experience',
       'crm-customers', 'crm-reminders', 'crm-tasks',
     ],
     user: { full_name: 'RJ', username: 'rj' },
