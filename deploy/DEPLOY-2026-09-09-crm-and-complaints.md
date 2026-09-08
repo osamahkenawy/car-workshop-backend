@@ -26,6 +26,20 @@ deploy, and staging hasn't been deployed since. It is **not** part of
 this deploy (unrelated to the work below); do it as its own change if/when
 wanted, following that doc's Step 5 verbatim.
 
+PRE-EXISTING CRON ERRORS (seen in `pm2 logs` after restart, not caused by
+this deploy or fixed by any migration above — flagged here so nobody
+chases them as a deploy regression):
+  - DocExpiry cron queries `mechanic_documents.expiry_date`, which has
+    never existed — the column has always been named `expires_at`
+    (car_workshop.sql). A code bug in src/lib/doc-expiry-cron.js.
+  - The scheduled-report sender fails on `Unknown column 'cash_settled'`
+    — no migration, old or new, ever created that column.
+  - DataRetention's cron fails under `sql_mode=only_full_group_by` on a
+    query selecting `s.plan` outside its GROUP BY — a query-strictness
+    bug, not a schema gap.
+  None of these are user-facing (they're background cron jobs) and none
+  are addressed here — worth a separate ticket.
+
 ---------------------------------------------------------------------------
 STEP 0 — Back up first. Migrations touch several tables.
 ---------------------------------------------------------------------------
@@ -49,14 +63,28 @@ STEP 2 — Backend dependencies
 No build step: the backend is plain ESM Node.
 
 ---------------------------------------------------------------------------
-STEP 3 — Migrations, in this order (all idempotent; safe to re-run even
-          if some were already applied — every CREATE TABLE is
-          IF NOT EXISTS and every ALTER is guarded by an
-          information_schema check, verified across every file below)
+STEP 3 — Migrations
 ---------------------------------------------------------------------------
+DO NOT re-run `car_workshop.sql` against a live install. It is the
+fresh-install script: its base schema is `CREATE TABLE IF NOT EXISTS`
+(safe), but its seed data (`INSERT INTO plans ...`, line 44-45) is a bare
+INSERT with no `ON DUPLICATE KEY UPDATE`/`IGNORE`. On a live database that
+row already exists, so it errors on `plans.slug` and — because the plain
+`mysql < file` client stops a script at its first error — nothing after
+line 44 in that file runs either. (Everything after line 44 is more
+`CREATE TABLE IF NOT EXISTS` for tables that already exist on a live
+site, so this costs nothing in practice — but don't rely on that; just
+skip the file.)
+
+Every file below IS safe to re-run (every CREATE TABLE is IF NOT EXISTS,
+every ALTER is guarded by an information_schema check — verified). Run
+each on its own line, not pasted as one block: pasting ~15 separate
+`mysql -p` invocations at once means only the first gets an interactive
+password prompt reliably, and the rest can fail with "Access denied
+(using password: NO)" or hang waiting on input that never comes.
+
   cd /var/www/car-workshop/backend
 
-  mysql -u root -p car_workshop < src/migrations/car_workshop.sql
   mysql -u root -p car_workshop < src/migrations/post/00_schema_patches.sql
   mysql -u root -p car_workshop < src/migrations/post/01_seed_countries.sql
   mysql -u root -p car_workshop < src/migrations/post/02_sow_schema.sql
@@ -74,9 +102,21 @@ STEP 3 — Migrations, in this order (all idempotent; safe to re-run even
   mysql -u root -p car_workshop < src/migrations/20260904_vehicle_inspections.sql
   mysql -u root -p car_workshop < src/migrations/20260909_contact_channels.sql
 
-Order matters here (car_workshop.sql creates the base tables everything
-else ALTERs) but re-running any already-applied file is a no-op — none of
-them need to know what staging's current state is.
+Before running any of them, check what staging actually needs — on the
+2026-09-09 deploy, every one of these except the last was already applied
+(likely from earlier manual work this doc has no record of):
+
+  mysql -u root -p car_workshop -e "
+  SELECT
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='car_workshop' AND table_name='disputes' AND column_name='case_number') AS post03_disputes_sla,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='car_workshop' AND table_name='survey_responses' AND column_name='external_id') AS m0903_survey_external_id,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='car_workshop' AND table_name='vehicle_inspections') AS m0904_vehicle_inspections,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='car_workshop' AND table_name='user_notifications') AS m0825_user_notifications,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='car_workshop' AND table_name='crm_tasks') AS m0902_crm_phase1,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='car_workshop' AND table_name='customer_activities' AND column_name='activity_type' AND column_type LIKE '%mobile_app%') AS m0909_contact_channels;
+  "
+
+Only run the files whose check comes back 0. Re-check after each one.
 
 What the ones relevant to this deploy do, specifically:
   post/03_customer_journey.sql   adds case_number/intake_channel/
