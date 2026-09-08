@@ -313,8 +313,63 @@ router.get('/:id/timeline', async (req, res) => {
 /* ═══════════════════════════════════════════════════════════
    POST /:id/activities — log a call, a visit, a note
    ═══════════════════════════════════════════════════════════ */
-const ACTIVITY_TYPES = ['call_in', 'call_out', 'whatsapp', 'email', 'visit', 'note', 'complaint', 'other'];
+const ACTIVITY_TYPES = [
+  'call_in', 'call_out', 'whatsapp', 'email', 'visit', 'note', 'complaint', 'other',
+  'mobile_app', 'web_portal', 'social_media',
+];
 const RELATED_TYPES = ['enquiry', 'work_order', 'invoice', 'quote', 'warranty_claim', 'none'];
+
+// GET /api/crm/customers/activities/stats — KPI matrix row 9.
+//
+// Reports contact volume by channel: phone, email, whatsapp, mobile app, web
+// portal, social media — exactly the six the KPI names. Walk-in is deliberately
+// excluded here: it is a booking channel, already reported on the Booking
+// Funnel (row 1), and counting it again here would double it into a KPI that
+// is not asking about bookings.
+//
+// A real gap this does not close: an activity logged as 'complaint' loses its
+// channel entirely, because activity_type currently conflates "this was a
+// complaint" with "this is how it arrived". Splitting those apart is part of
+// the complaint work blocked on GM Pioneer's category list (rows 7/8/10/11),
+// not something to invent unilaterally here.
+router.get('/activities/stats', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const where = ['a.workshop_id = ?'];
+    const params = [req.workshopId];
+    if (from) { where.push('a.occurred_at >= ?'); params.push(`${from} 00:00:00`); }
+    if (to)   { where.push('a.occurred_at <= ?'); params.push(`${to} 23:59:59`); }
+    where.push("a.activity_type IN ('call_in','call_out','whatsapp','email','mobile_app','web_portal','social_media')");
+    const clause = where.join(' AND ');
+
+    const rows = await query(
+      `SELECT a.activity_type, COUNT(*) AS n FROM customer_activities a
+        WHERE ${clause} GROUP BY a.activity_type`,
+      params
+    );
+
+    // call_in and call_out are one channel — phone — for this report; the
+    // in/out distinction matters to a call log, not to a channel-volume KPI.
+    const byChannel = { phone: 0, email: 0, whatsapp: 0, mobile_app: 0, web_portal: 0, social_media: 0 };
+    for (const r of rows) {
+      const key = (r.activity_type === 'call_in' || r.activity_type === 'call_out') ? 'phone' : r.activity_type;
+      byChannel[key] = (byChannel[key] || 0) + Number(r.n);
+    }
+    const total = Object.values(byChannel).reduce((a, b) => a + b, 0);
+
+    return res.json({
+      success: true,
+      data: {
+        from: from || null, to: to || null,
+        total,
+        by_channel: Object.entries(byChannel).map(([channel, count]) => ({ channel, count })),
+      },
+    });
+  } catch (err) {
+    console.error('[CRMCustomers] activity channel stats error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to fetch contact channel stats' });
+  }
+});
 
 router.post('/:id/activities', async (req, res) => {
   try {
