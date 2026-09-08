@@ -79,6 +79,47 @@ router.get('/', async (req, res) => {
 // GET /api/customers/stats  — aggregate KPIs for the workshop
 router.get('/stats', async (req, res) => {
   try {
+    // Rows 4-5 of the KPI matrix: new vs. repeat customer split, and repeat
+    // rate, for a period. "Repeat" means the customer had a work order before
+    // the period started too - not just more than one order inside it, which
+    // would misclassify someone who booked twice in one week as a repeat
+    // customer on their very first visit.
+    const { from, to } = req.query;
+    let periodStats = null;
+    if (from && to) {
+      // One row per customer, not per work order: the earlier version joined
+      // at the order level, so a customer with 40 orders in the period was
+      // counted 40 times and repeat_rate_pct came out as 4323%. Collapse to
+      // distinct customers served in the period first, then classify each one
+      // once against their all-time first order.
+      const [p] = await query(
+        `SELECT
+           COUNT(*) AS served,
+           SUM(fo.first_order >= ?) AS new_customers,
+           SUM(fo.first_order <  ?) AS repeat_customers
+         FROM (
+           SELECT DISTINCT customer_id FROM work_orders
+            WHERE workshop_id = ? AND customer_id IS NOT NULL
+              AND created_at BETWEEN ? AND ?
+         ) served
+         JOIN (
+           SELECT customer_id, MIN(created_at) AS first_order
+             FROM work_orders WHERE workshop_id = ? GROUP BY customer_id
+         ) fo ON fo.customer_id = served.customer_id`,
+        [`${from} 00:00:00`, `${from} 00:00:00`, req.workshopId,
+         `${from} 00:00:00`, `${to} 23:59:59`, req.workshopId]
+      );
+      const served = Number(p.served) || 0;
+      const repeat = Number(p.repeat_customers) || 0;
+      periodStats = {
+        from, to,
+        customers_served: served,
+        new_customers: Number(p.new_customers) || 0,
+        repeat_customers: repeat,
+        repeat_rate_pct: served ? Math.round((repeat / served) * 100) : null,
+      };
+    }
+
     const [counts] = await query(
       `SELECT
          COUNT(*) as total,
@@ -110,7 +151,10 @@ router.get('/stats', async (req, res) => {
        GROUP BY c.id ORDER BY total_work_orders DESC LIMIT 5`,
       [req.workshopId]
     );
-    return res.json({ success: true, data: { ...counts, ...workOrderStats, top_customers: topCustomers } });
+    return res.json({
+      success: true,
+      data: { ...counts, ...workOrderStats, top_customers: topCustomers, period: periodStats },
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to fetch stats' });
   }

@@ -111,6 +111,98 @@ function addMinutes(timeStr, minutes) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// GET /api/appointments/stats — the booking funnel
+// KPI matrix rows 1-3: bookings received, confirmed, show-up rate.
+// Registered ahead of GET /:id, which would otherwise swallow "stats" as an id.
+// ══════════════════════════════════════════════════════════════
+router.get('/stats', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const where = ['a.workshop_id = ?'];
+    const params = [req.workshopId];
+    if (from) { where.push('a.appointment_date >= ?'); params.push(from); }
+    if (to)   { where.push('a.appointment_date <= ?'); params.push(to); }
+    const clause = where.join(' AND ');
+
+    // "Confirmed" means the booking moved past pending, whichever way it then
+    // resolved — a no-show was still a confirmed booking that did not arrive.
+    // Show-up rate is arrived/completed against that confirmed base, not
+    // against everything received, so a lot of stale pending requests cannot
+    // make the show-up rate look artificially bad.
+    const [totals] = await query(
+      `SELECT
+         COUNT(*) AS received,
+         SUM(a.status <> 'pending' AND a.status <> 'cancelled') AS confirmed,
+         SUM(a.status IN ('arrived','in_progress','completed')) AS arrived_or_completed,
+         SUM(a.status = 'no_show')  AS no_show,
+         SUM(a.status = 'cancelled') AS cancelled
+       FROM appointments a WHERE ${clause}`,
+      params
+    );
+    const received = Number(totals.received) || 0;
+    const confirmed = Number(totals.confirmed) || 0;
+    const arrived = Number(totals.arrived_or_completed) || 0;
+
+    const byChannel = await query(
+      `SELECT a.source AS channel, COUNT(*) AS received,
+              SUM(a.status <> 'pending' AND a.status <> 'cancelled') AS confirmed,
+              SUM(a.status IN ('arrived','in_progress','completed')) AS arrived_or_completed
+         FROM appointments a WHERE ${clause}
+        GROUP BY a.source ORDER BY received DESC`,
+      params
+    );
+
+    // Fleet bookings tracked separately per the KPI note - a no-show driver
+    // is a different problem from a retail customer no-show. LEFT JOIN so a
+    // walk-in with no linked customer record still shows up, under Unlinked.
+    const byCustomerType = await query(
+      `SELECT COALESCE(c.type, 'unlinked') AS customer_type, COUNT(*) AS received,
+              SUM(a.status <> 'pending' AND a.status <> 'cancelled') AS confirmed,
+              SUM(a.status IN ('arrived','in_progress','completed')) AS arrived_or_completed
+         FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id
+        WHERE ${clause}
+        GROUP BY customer_type ORDER BY received DESC`,
+      params
+    );
+
+    const pct = (num, den) => (den ? Math.round((num / den) * 100) : null);
+
+    return res.json({
+      success: true,
+      data: {
+        from: from || null, to: to || null,
+        totals: {
+          received, confirmed, arrived_or_completed: arrived,
+          no_show: Number(totals.no_show) || 0,
+          cancelled: Number(totals.cancelled) || 0,
+          conversion_rate_pct: pct(confirmed, received),
+          show_up_rate_pct: pct(arrived, confirmed),
+        },
+        by_channel: byChannel.map(r => ({
+          channel: r.channel,
+          received: Number(r.received),
+          confirmed: Number(r.confirmed),
+          arrived_or_completed: Number(r.arrived_or_completed),
+          conversion_rate_pct: pct(Number(r.confirmed), Number(r.received)),
+          show_up_rate_pct: pct(Number(r.arrived_or_completed), Number(r.confirmed)),
+        })),
+        by_customer_type: byCustomerType.map(r => ({
+          customer_type: r.customer_type,
+          received: Number(r.received),
+          confirmed: Number(r.confirmed),
+          arrived_or_completed: Number(r.arrived_or_completed),
+          conversion_rate_pct: pct(Number(r.confirmed), Number(r.received)),
+          show_up_rate_pct: pct(Number(r.arrived_or_completed), Number(r.confirmed)),
+        })),
+      },
+    });
+  } catch (err) {
+    console.error('[Appointments] stats error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to fetch appointment stats' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
 // GET /api/appointments — list appointments
 // Supports: date, status, advisor_id, customer_id, search
 // ══════════════════════════════════════════════════════════════

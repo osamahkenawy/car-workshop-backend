@@ -676,6 +676,21 @@ adminSurveyRouter.get('/stats', async (req, res) => {
     );
     const bareLinkIsOurs = await ownsBarePublicLink(req.user.workshop_id);
 
+    // Row 37 of the KPI matrix: CSAT/NPS are not credible evidence without the
+    // response rate alongside them. Scoped to invites, on the same from/to
+    // window as the responses above, so the two numbers describe one period.
+    const inviteWhere = ['workshop_id = ?'];
+    const inviteParams = [req.user.workshop_id];
+    if (req.query.from) { inviteWhere.push('sent_at >= ?'); inviteParams.push(`${req.query.from} 00:00:00`); }
+    if (req.query.to)   { inviteWhere.push('sent_at <= ?'); inviteParams.push(`${req.query.to} 23:59:59`); }
+    const [inviteRow] = await query(
+      `SELECT COUNT(*) AS invites_sent, SUM(responded_at IS NOT NULL) AS invites_responded
+         FROM survey_invites WHERE ${inviteWhere.join(' AND ')}`,
+      inviteParams
+    );
+    const invitesSent = Number(inviteRow.invites_sent) || 0;
+    const invitesResponded = Number(inviteRow.invites_responded) || 0;
+
     const verbatims = await query(
       `SELECT r.id, r.nps_score, r.nps_category, r.nps_reason, r.branch,
               r.service_requested, r.contact_name, r.submitted_at
@@ -700,6 +715,8 @@ adminSurveyRouter.get('/stats', async (req, res) => {
       data: {
         headline: {
           responses,
+          invitesSent,
+          responseRate: invitesSent ? Math.round((invitesResponded / invitesSent) * 100) : null,
           nps: computeNps({
             promoters: Number(head.promoters) || 0,
             detractors: Number(head.detractors) || 0,

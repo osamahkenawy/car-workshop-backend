@@ -155,15 +155,23 @@ router.post('/', async (req, res) => {
     if (!wo) return res.status(404).json({ success: false, message: 'Work order not found' });
 
     // One inspection of a given type per work order — reopen the existing one
-    // rather than silently creating duplicates if the page is opened twice.
+    // rather than creating duplicates if the page is opened twice. This check
+    // alone isn't enough: React's dev StrictMode fires the effect twice, and
+    // two concurrent requests both saw "none" and both inserted. A UNIQUE key
+    // on (work_order_id, inspection_type) settles the race; the insert below
+    // catches the duplicate-key error and returns the winner's row.
+    const returnExisting = async () => {
+      const [row] = await query(
+        'SELECT * FROM vehicle_inspections WHERE work_order_id = ? AND inspection_type = ? AND workshop_id = ?',
+        [work_order_id, inspection_type, req.workshopId]
+      );
+      return row ? res.json({ success: true, data: parseMarks(row), reused: true }) : null;
+    };
     const [existing] = await query(
       'SELECT id FROM vehicle_inspections WHERE work_order_id = ? AND inspection_type = ? AND workshop_id = ?',
       [work_order_id, inspection_type, req.workshopId]
     );
-    if (existing) {
-      const [row] = await query('SELECT * FROM vehicle_inspections WHERE id = ?', [existing.id]);
-      return res.json({ success: true, data: parseMarks(row), reused: true });
-    }
+    if (existing) return returnExisting();
 
     const b = req.body;
     const result = await execute(
@@ -198,6 +206,18 @@ router.post('/', async (req, res) => {
     const [row] = await query('SELECT * FROM vehicle_inspections WHERE id = ?', [result.insertId]);
     return res.status(201).json({ success: true, data: parseMarks(row) });
   } catch (err) {
+    // Lost the race against a concurrent create for the same work order and
+    // type — hand back the row that won instead of failing the request.
+    if (err.code === 'ER_DUP_ENTRY') {
+      try {
+        const { work_order_id, inspection_type = 'intake' } = req.body;
+        const [row] = await query(
+          'SELECT * FROM vehicle_inspections WHERE work_order_id = ? AND inspection_type = ? AND workshop_id = ?',
+          [work_order_id, inspection_type, req.workshopId]
+        );
+        if (row) return res.json({ success: true, data: parseMarks(row), reused: true });
+      } catch (_) { /* fall through to the 500 below */ }
+    }
     console.error('[VehicleInspections] Create error:', err);
     return res.status(500).json({ success: false, message: 'Failed to create inspection' });
   }
