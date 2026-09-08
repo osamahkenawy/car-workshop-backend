@@ -85,6 +85,7 @@ import inventoryRouter from './routes/inventory.js';
 import subletRouter, { proformaRouter, gatePassRouter } from './routes/sublet.js';
 import { vatRouter, evhcRouter, groupIntegrationRouter } from './routes/vat-evhc-integration.js';
 import disputesRouter from './routes/disputes.js';
+import mechanicKpiRouter from './routes/mechanic-kpi.js';
 import helmet from 'helmet';
 
 const app = express();
@@ -275,6 +276,9 @@ app.use('/api/gate-pass', gatePassRouter);
 // Complaints — wires up the pre-existing `disputes` table (intake, SLA
 // timestamps, outcome, authority level); no category taxonomy yet.
 app.use('/api/disputes', disputesRouter);
+// Technician KPI snapshots — read-only view of periodic attendance/billing
+// reports imported via scripts/import-mechanic-kpi.js.
+app.use('/api/mechanic-kpi', mechanicKpiRouter);
 // B9: UAE VAT & FTA e-invoicing
 app.use('/api/vat', vatRouter);
 // B3 req 74: Electronic Vehicle Health Check

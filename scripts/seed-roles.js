@@ -39,7 +39,7 @@ const KNOWN_MODULES = new Set([
   'dashboard', 'enquiries', 'work-orders', 'customers', 'vehicles', 'parts',
   'mechanics', 'job-assignment', 'service-status', 'warranty-claims',
   'crm-customers', 'crm-reminders', 'crm-tasks', 'service-bays', 'pricing',
-  'inventory', 'invoices', 'cash-payment', 'wallet', 'reports', 'performance',
+  'inventory', 'invoices', 'cash-payment', 'wallet', 'reports', 'performance', 'technician-kpi',
   'customer-feedback', 'customer-experience', 'complaints', 'notifications', 'settings', 'integrations',
   // technician app — deliberately not granted to office roles
   'mechanic-dashboard', 'my-work-orders', 'mechanic-scan',
@@ -61,7 +61,7 @@ const ROLES = [
       ...BASE, 'enquiries', 'work-orders', 'job-assignment', 'service-status',
       'customers', 'vehicles', 'mechanics', 'service-bays', 'parts', 'inventory',
       'invoices', 'cash-payment', 'wallet', 'pricing', 'warranty-claims',
-      'customer-feedback', 'customer-experience', 'complaints', 'reports', 'performance',
+      'customer-feedback', 'customer-experience', 'complaints', 'reports', 'performance', 'technician-kpi',
       'crm-customers', 'crm-reminders', 'crm-tasks', 'settings', 'integrations',
     ],
     user: { full_name: 'General Manager', username: 'general.manager' },
@@ -75,7 +75,7 @@ const ROLES = [
     modules: [
       ...BASE, 'enquiries', 'work-orders', 'job-assignment', 'service-status',
       'customers', 'vehicles', 'mechanics', 'service-bays', 'invoices',
-      'warranty-claims', 'customer-feedback', 'customer-experience', 'complaints', 'reports', 'performance',
+      'warranty-claims', 'customer-feedback', 'customer-experience', 'complaints', 'reports', 'performance', 'technician-kpi',
       'crm-customers', 'crm-reminders', 'crm-tasks',
     ],
     // "no need to part and access" — parts and inventory are left out on
@@ -122,7 +122,7 @@ const ROLES = [
       // views of a work order's status, so they come from work-orders plus
       // service-status rather than being separate modules.
       ...BASE, 'work-orders', 'job-assignment', 'service-status',
-      'customers', 'vehicles', 'reports', 'performance',
+      'customers', 'vehicles', 'reports', 'performance', 'technician-kpi',
     ],
     user: { full_name: 'Supervisor', username: 'supervisor' },
   },
@@ -147,7 +147,7 @@ const ROLES = [
     // against the separate `super_admins` table. Kept here so the slug
     // resolves to a name, and the console account is created below.
     modules: [
-      'dashboard', 'notifications', 'reports', 'performance', 'settings', 'integrations',
+      'dashboard', 'notifications', 'reports', 'performance', 'technician-kpi', 'settings', 'integrations',
     ],
     user: null,
   },
