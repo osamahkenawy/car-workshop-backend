@@ -199,6 +199,25 @@ async function main() {
     return;
   }
 
+  // Idempotent re-runs: a second run used to just append another full
+  // schedule on top of the first (same bug import-mechanic-kpi.js had before
+  // it was fixed) — the tracking file only ever remembers the LAST run, so
+  // a second run before a --clean silently orphaned the first run's rows.
+  // There's no tag column to key a safe delete off, but every seeded row's
+  // `reason` is verbatim one of REASONS below — a real customer complaint
+  // is never going to match that text exactly — so deleting by exact reason
+  // match within the schedule's date span removes prior seed output (from
+  // any number of past runs) without touching a genuine complaint.
+  const reasonTexts = REASONS.map(r => r.text);
+  const oldestMonth = scheduleMonths()[0];
+  const scheduleStart = `${oldestMonth.year}-${pad(oldestMonth.month + 1)}-01`;
+  const reasonPlaceholders = reasonTexts.map(() => '?').join(',');
+  const del = await execute(
+    `DELETE FROM disputes WHERE workshop_id = ? AND created_at >= ? AND reason IN (${reasonPlaceholders})`,
+    [workshopId, scheduleStart, ...reasonTexts]
+  );
+  if (del.affectedRows) console.log(`Removed ${del.affectedRows} row(s) from a prior run before reseeding.\n`);
+
   const customers = await query(
     `SELECT id FROM customers WHERE workshop_id = ? AND is_active = 1 ORDER BY RAND() LIMIT 300`,
     [workshopId]
@@ -222,6 +241,7 @@ async function main() {
     [workshopId]
   );
   const staffPool = staff.length ? staff.map(u => u.id) : [null];
+
 
   const months = scheduleMonths();
   const insertedIds = [];
