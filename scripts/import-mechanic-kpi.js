@@ -14,17 +14,23 @@
  * a loud skip.
  *
  * Usage:
- *   node scripts/import-mechanic-kpi.js <csv-path> <period_start> <period_end> [--dry-run]
+ *   node scripts/import-mechanic-kpi.js <csv-path> <period_start> <period_end> [--dry-run] [--source=label]
  *   node scripts/import-mechanic-kpi.js scripts/data/technicians_kpi_2026-07.csv 2026-07-01 2026-07-31
+ *
+ * `source` defaults to kpi_report_<period_start month>; pass --source=xxx to
+ * override (used to tag modeled/estimated historical months distinctly from
+ * the one real report — see scripts/generate-historical-kpi.js).
  */
 import fs from 'fs';
 import { query, execute } from '../src/lib/database.js';
 
 const [, , csvPathArg, periodStartArg, periodEndArg, ...rest] = process.argv;
 const dryRun = rest.includes('--dry-run');
+const sourceArg = rest.find(a => a.startsWith('--source='))?.split('=')[1];
+const source = sourceArg || `kpi_report_${(periodStartArg || '').slice(0, 7)}`;
 
 if (!csvPathArg || !periodStartArg || !periodEndArg) {
-  console.error('Usage: node scripts/import-mechanic-kpi.js <csv-path> <period_start> <period_end> [--dry-run]');
+  console.error('Usage: node scripts/import-mechanic-kpi.js <csv-path> <period_start> <period_end> [--dry-run] [--source=label]');
   process.exit(1);
 }
 if (Number.isNaN(Date.parse(periodStartArg)) || Number.isNaN(Date.parse(periodEndArg))) {
@@ -50,6 +56,7 @@ async function main() {
   const rows = parseCsv(csv);
   console.log(`Loaded ${rows.length} rows from ${csvPathArg}`);
   console.log(`Period: ${periodStartArg} to ${periodEndArg}${dryRun ? ' (dry run — nothing will be written)' : ''}`);
+  console.log(`Source label: ${source}`);
   console.log('');
 
   const [{ id: workshopId } = {}] = await query('SELECT id FROM workshops LIMIT 1');
@@ -94,13 +101,14 @@ async function main() {
             days_present, avail_hrs, ot_hrs, total_hrs, worked_hrs, prod_hrs_pct, idle_hrs_pct,
             billed_value, billed_hrs, billed_hours, utilization_pct, productivity_pct, efficiency_pct,
             source)
-         VALUES (?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?, ?,?,?, 'kpi_report_2026-07')`,
+         VALUES (?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?, ?,?,?, ?)`,
         [
           workshopId, mech.id, periodStartArg, periodEndArg, tnCode, r.designation,
           num(r.days_present), num(r.avail_hrs), num(r.ot), num(r.total_hrs), num(r.worked_hrs),
           num(r.prod_hrs_pct), num(r.idle_hrs_pct),
           num(r.billed_value), num(r.billed_hrs), num(r.billed_hours),
           num(r.u_pct), num(r.p_pct), num(r.e_pct),
+          source,
         ]
       );
     }
