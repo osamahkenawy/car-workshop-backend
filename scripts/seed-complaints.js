@@ -9,8 +9,14 @@
  * Monthly volume is a fixed, explicitly-requested schedule rather than a
  * random range — it tapers going backward from the current (partial) month:
  * current month 3, then 9, 8, 7, 6, 5, 4, 3, 2 for each month further back,
- * covering January through the current month. SCHEDULE below is indexed by
- * "months back from now" (0 = current month).
+ * then 2, 1, 1 for the three months before that, giving a full rolling
+ * twelve months. SCHEDULE below is indexed by "months back from now"
+ * (0 = current month).
+ *
+ * The taper is not decoration: it says the CX programme was logging almost
+ * nothing a year ago and now captures most of what comes in, which is what
+ * a year-on-year complaints chart is for. Reading it as "complaints are
+ * getting worse" would be backwards.
  *
  * Each complaint carries the workshop's actual severity classification
  * (see 20260911_complaint_severity_workflow.sql / routes/disputes.js):
@@ -50,8 +56,9 @@ const num = (flag, d) => { const i = argv.indexOf(flag); return i > -1 ? Number(
 const WORKSHOP_ARG = num('--workshop', 0);
 
 // Index 0 = current (partial) month, 1 = one month back, etc. — the exact
-// counts requested: current month 3, then 9/8/7/6/5/4/3/2 going backward.
-const SCHEDULE = [3, 9, 8, 7, 6, 5, 4, 3, 2];
+// counts requested: current month 3, then 9/8/7/6/5/4/3/2 going backward,
+// extended with 2/1/1 to complete a rolling twelve months.
+const SCHEDULE = [3, 9, 8, 7, 6, 5, 4, 3, 2, 2, 1, 1];
 
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const rint = (lo, hi) => Math.floor(Math.random() * (hi - lo + 1)) + lo;
@@ -304,13 +311,35 @@ async function main() {
       const needsRootCause = severity === 'S1' || isRepeat;
 
       if ((status === 'resolved' || status === 'closed') && acknowledgedAt) {
-        // Centred on this complaint's own severity target rather than a flat
-        // range for everyone — S2 is the bulk of the mix and targets 5 working
-        // days, so tying the spread to each severity's own target is what
-        // lands the overall average around 5 days instead of a generic
-        // (and, across a mostly-S2 mix, noticeably shorter) flat range.
-        const candidate = addHours(acknowledgedAt, rint(24, meta.resolveDays * 24 * 2));
+        // Drawn against this case's own target date, not a spread around it.
+        //
+        // The earlier version drew uniformly from 24h to twice the target and
+        // measured from acknowledgement, which put the mean near the target
+        // and therefore breached roughly half of every severity — S1 came out
+        // at 21% compliance. That reads as a workshop that misses most of its
+        // commitments, which is not what a year of seeded history should
+        // assert, and it drives the SLA compliance card on the Complaints
+        // page directly.
+        //
+        // So: most cases land inside target, clustered in the back half of
+        // the window because real work finishes near its deadline, and a
+        // deliberate minority breach — those are what the escalation and
+        // past-target features exist to surface, so the data has to contain
+        // some.
+        const MET_RATE = 0.82;
+        const room = responseDueAt.getTime() - acknowledgedAt.getTime();
+        let candidate;
+        if (room > 3600000 && chance(MET_RATE)) {
+          // Inside target: 45%-98% of the way from acknowledgement to due.
+          candidate = new Date(acknowledgedAt.getTime()
+            + room * (0.45 + Math.random() * 0.53));
+        } else {
+          // Breached: past the target by 2 hours to 4 days.
+          candidate = addHours(responseDueAt, rint(2, 96));
+        }
         resolvedAt = candidate > now ? now : candidate;
+        // Never before acknowledgement, whichever branch and clamp applied.
+        if (resolvedAt < acknowledgedAt) resolvedAt = addHours(acknowledgedAt, 1);
         outcome = weighted(OUTCOME);
         resolution = pick(RESOLUTIONS[outcome]);
         changesMade = pick(CHANGES_MADE);

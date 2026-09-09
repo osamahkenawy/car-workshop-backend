@@ -9,3 +9,9 @@ npm-debug.log*
 .DS_Store
 dist/
 coverage/
+
+# Row ids created by the last seed-complaints.js run, used by its --clean.
+# Per-database state: these ids identify different `disputes` rows in every
+# environment, so a committed copy would make --clean delete the wrong cases
+# after a pull.
+scripts/data/.seed-complaints-ids.json
