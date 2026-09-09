@@ -6,20 +6,27 @@
  * useful on a fresh install: 0 total, no SLA figures, "Coming soon"-shaped
  * emptiness.
  *
- * Spreads at least 9 complaints across each calendar month from
- * MONTHS_BACK months ago through the current month (today capped, so the
- * in-progress month isn't overfilled with future-dated rows), with a
- * realistic mix of intake channels, statuses, SLA outcomes and resolution
- * times — not a flat "N identical rows per month". Older months skew
- * resolved/closed; the trailing couple of weeks skew open/investigating,
- * the way a real queue looks.
+ * Monthly volume is a fixed, explicitly-requested schedule rather than a
+ * random range — it tapers going backward from the current (partial) month:
+ * current month 3, then 9, 8, 7, 6, 5, 4, 3, 2 for each month further back,
+ * covering January through the current month. SCHEDULE below is indexed by
+ * "months back from now" (0 = current month).
+ *
+ * Each complaint carries the workshop's actual severity classification
+ * (see 20260911_complaint_severity_workflow.sql / routes/disputes.js):
+ *   S1 safety or repeat failure — 1-2 working day target, root cause mandatory
+ *   S2 workmanship or billing   — 3-5 working day target
+ *   S3 conduct or information   — 2-3 working day target
+ * A second complaint on the same customer within 90 days is auto-flagged
+ * repeat and forced to S1, mirroring the backend's own create-time logic —
+ * this seed re-implements that check locally rather than going through the
+ * API, so it needs to make the same call itself.
  *
  * Linked to real customers and, where a plausible one exists, a real
  * completed work order — this is meant to make an existing installation's
  * dashboards tell a believable story, not to exercise the API.
  *
- *   node scripts/seed-complaints.js                 # seed (9-15/month, last 9 months)
- *   node scripts/seed-complaints.js --months 6
+ *   node scripts/seed-complaints.js                 # seed the fixed schedule, Jan-current month
  *   node scripts/seed-complaints.js --workshop 3
  *   node scripts/seed-complaints.js --clean          # remove exactly what this created
  *
@@ -40,8 +47,11 @@ const TRACK_FILE = path.join(__dirname, 'data', '.seed-complaints-ids.json');
 const argv = process.argv.slice(2);
 const CLEAN = argv.includes('--clean');
 const num = (flag, d) => { const i = argv.indexOf(flag); return i > -1 ? Number(argv[i + 1]) : d; };
-const MONTHS_BACK = num('--months', 9);
 const WORKSHOP_ARG = num('--workshop', 0);
+
+// Index 0 = current (partial) month, 1 = one month back, etc. — the exact
+// counts requested: current month 3, then 9/8/7/6/5/4/3/2 going backward.
+const SCHEDULE = [3, 9, 8, 7, 6, 5, 4, 3, 2];
 
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const rint = (lo, hi) => Math.floor(Math.random() * (hi - lo + 1)) + lo;
@@ -58,28 +68,45 @@ const mysqlDt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDat
   `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 const addHours = (d, h) => new Date(d.getTime() + h * 3600000);
 
+// Same working-day SLA the backend computes on create (routes/disputes.js
+// SEVERITY_META) — skips Fridays only, an approximation, see that file's note.
+const SEVERITY_META = {
+  S1: { resolveDays: 2, defaultTier: 'manager' },
+  S2: { resolveDays: 5, defaultTier: 'manager' },
+  S3: { resolveDays: 3, defaultTier: 'advisor' },
+};
+function addWorkingDays(date, days) {
+  const d = new Date(date);
+  let remaining = days;
+  while (remaining > 0) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() !== 5) remaining--;
+  }
+  return d;
+}
+
 /* ── Reason bank — each tagged with a plausible amount range (0 for
-   non-billing complaints) so the numbers on a complaint read as belonging
-   to its own story rather than a random dollar figure. ────────────────── */
+   non-billing complaints) and the severity it falls under per the policy's
+   own classification examples. ────────────────────────────────────────── */
 const REASONS = [
-  { text: 'Charged more than the quoted estimate for the repair — no one called to explain the extra work before it was done.', amount: [180, 950] },
-  { text: 'Vehicle was ready two days later than promised, with no update until I called in myself.', amount: [0, 0] },
-  { text: 'The same noise came back within a week of the repair it was supposedly fixed for.', amount: [0, 0] },
-  { text: 'Invoice included a diagnostic fee I was told would be waived since I went ahead with the repair.', amount: [80, 250] },
-  { text: 'Oil stains were left on the driver seat and floor mat after the service.', amount: [0, 0] },
-  { text: 'Was quoted one price over the phone and charged a higher one at pickup.', amount: [150, 1200] },
-  { text: 'The service reminder light was never reset after the oil change.', amount: [0, 0] },
-  { text: 'Called three times about the delay and no one returned the call.', amount: [0, 0] },
-  { text: 'New brake pads are squealing already, worse than before the service.', amount: [0, 0] },
-  { text: 'The wrong part was fitted — had to bring the car back a second time for the same job.', amount: [0, 0] },
-  { text: "Wasn't told the warranty wouldn't cover the part that was replaced, only found out on the invoice.", amount: [300, 2200] },
-  { text: "Paint touch-up doesn't match the original colour on the panel.", amount: [0, 0] },
-  { text: "Car came back with a scratch on the bumper that wasn't there at drop-off.", amount: [0, 0] },
-  { text: 'Charged for more labour hours than the original estimate without being told beforehand.', amount: [200, 1500] },
-  { text: "AC still isn't cooling properly after paying for the recharge service.", amount: [0, 0] },
-  { text: 'Was promised a courtesy car and none was available on the day.', amount: [0, 0] },
-  { text: 'The invoice lists a part that was never actually replaced.', amount: [250, 900] },
-  { text: 'Left a voicemail for a status update four days ago, still no callback.', amount: [0, 0] },
+  { text: 'Charged more than the quoted estimate for the repair — no one called to explain the extra work before it was done.', amount: [180, 950], severity: 'S2' },
+  { text: 'Vehicle was ready two days later than promised, with no update until I called in myself.', amount: [0, 0], severity: 'S2' },
+  { text: 'The same noise came back within a week of the repair it was supposedly fixed for.', amount: [0, 0], severity: 'S1' },
+  { text: 'Invoice included a diagnostic fee I was told would be waived since I went ahead with the repair.', amount: [80, 250], severity: 'S2' },
+  { text: 'Oil stains were left on the driver seat and floor mat after the service.', amount: [0, 0], severity: 'S2' },
+  { text: 'Was quoted one price over the phone and charged a higher one at pickup.', amount: [150, 1200], severity: 'S2' },
+  { text: 'The service reminder light was never reset after the oil change.', amount: [0, 0], severity: 'S2' },
+  { text: 'Called three times about the delay and no one returned the call.', amount: [0, 0], severity: 'S3' },
+  { text: 'New brake pads are squealing already, worse than before the service.', amount: [0, 0], severity: 'S1' },
+  { text: 'The wrong part was fitted — had to bring the car back a second time for the same job.', amount: [0, 0], severity: 'S2' },
+  { text: "Wasn't told the warranty wouldn't cover the part that was replaced, only found out on the invoice.", amount: [300, 2200], severity: 'S2' },
+  { text: "Paint touch-up doesn't match the original colour on the panel.", amount: [0, 0], severity: 'S2' },
+  { text: "Car came back with a scratch on the bumper that wasn't there at drop-off.", amount: [0, 0], severity: 'S2' },
+  { text: 'Charged for more labour hours than the original estimate without being told beforehand.', amount: [200, 1500], severity: 'S2' },
+  { text: "AC still isn't cooling properly after paying for the recharge service.", amount: [0, 0], severity: 'S2' },
+  { text: 'Was promised a courtesy car and none was available on the day.', amount: [0, 0], severity: 'S3' },
+  { text: 'The invoice lists a part that was never actually replaced.', amount: [250, 900], severity: 'S2' },
+  { text: 'Left a voicemail for a status update four days ago, still no callback.', amount: [0, 0], severity: 'S3' },
 ];
 
 /* ── Resolution templates, keyed by outcome — used only for
@@ -109,18 +136,36 @@ const CHANGES_MADE = [
   'None — process was followed correctly; logged for visibility only.',
 ];
 
+// Root cause analysis — required before closing any S1, and for a repeat
+// case regardless of severity, per policy.
+const ROOT_CAUSES = {
+  method: ['No standard step existed for confirming a cost change with the customer before extra work began.', 'Job-card sign-off procedure did not require a supervisor check before closing out the line.'],
+  machine: ['Diagnostic equipment calibration was overdue, giving an inconsistent read on the fault.', 'A bay lift service interval was missed, which delayed the job by a day.'],
+  material: ['The part received from the supplier did not match the OEM spec logged on the job card.', 'The wrong part was picked from stores against a similar part number.'],
+  manpower: ["The technician assigned had not been briefed on this vehicle's known fault history.", 'The advisor covering the desk that day had not been trained on the price-change approval step.'],
+  measurement: ['The QC road test was not logged before the vehicle was released.', 'A torque check on the job was not recorded against the QC sheet.'],
+  environment: ['The bay was over capacity that week, and the job was rushed to make room.', 'A workload peak that day meant the callback checklist step was skipped.'],
+};
+const CORRECTIVE_ACTIONS = [
+  'Added a mandatory customer sign-off step before any cost change is applied to an open job card.',
+  'Scheduled equipment recalibration and added it to the maintenance calendar.',
+  'Added a parts-match check against the job card before issue from stores.',
+  'Briefing added to the technician handover sheet for repeat-fault vehicles.',
+  'QC road test now logged as a required field before a job can be marked ready for pickup.',
+  'Callback checklist step made mandatory regardless of workload, with a supervisor spot-check.',
+];
+
 const INTAKE = [['phone', 35], ['in_person', 28], ['whatsapp', 22], ['email', 10], ['portal', 5]];
 const OUTCOME = [['refund_due', 25], ['charge_correct', 30], ['partial_refund', 20], ['goodwill', 25]];
-const AUTHORITY = [['advisor', 65], ['manager', 28], ['senior', 7]];
 
-function monthRange(monthsBack) {
+function scheduleMonths() {
   const now = new Date();
-  const months = [];
-  for (let i = monthsBack - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push({ year: d.getFullYear(), month: d.getMonth() }); // month: 0-based
-  }
-  return months;
+  // Oldest first, so repeat detection below sees a customer's earlier
+  // complaint before it generates a later one for the same customer.
+  return SCHEDULE.map((count, monthsBack) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+    return { year: d.getFullYear(), month: d.getMonth(), count, monthsBack };
+  }).reverse();
 }
 
 function randomDateInMonth(year, month) {
@@ -178,14 +223,13 @@ async function main() {
   );
   const staffPool = staff.length ? staff.map(u => u.id) : [null];
 
-  const months = monthRange(MONTHS_BACK);
+  const months = scheduleMonths();
   const insertedIds = [];
   const summary = [];
+  const customerHistory = new Map(); // customerId -> array of prior created_at Dates (this run only)
+  const now = new Date();
 
-  for (const { year, month } of months) {
-    const now = new Date();
-    const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
-    const count = isCurrentMonth ? rint(9, 12) : rint(9, 15);
+  for (const { year, month, count } of months) {
     let inserted = 0;
 
     for (let i = 0; i < count; i++) {
@@ -196,8 +240,17 @@ async function main() {
       const customerWos = woByCustomer.get(customer.id) || [];
       const workOrderId = customerWos.length && chance(0.55) ? pick(customerWos) : null;
 
+      // Repeat detection — same call the backend makes on create: a second
+      // complaint on this customer within 90 days forces S1.
+      const priorDates = customerHistory.get(customer.id) || [];
+      const isRepeat = priorDates.some(d => (createdAt - d) / 86400000 <= 90 && createdAt >= d);
+      customerHistory.set(customer.id, [...priorDates, createdAt]);
+
       const reasonEntry = pick(REASONS);
       const amount = reasonEntry.amount[1] > 0 ? rint(reasonEntry.amount[0], reasonEntry.amount[1]) : 0;
+      const severity = isRepeat ? 'S1' : reasonEntry.severity;
+      const meta = SEVERITY_META[severity];
+      const responseDueAt = addWorkingDays(createdAt, meta.resolveDays);
 
       // Older complaints have had time to move through the queue; recent
       // ones look like a real in-progress inbox.
@@ -212,18 +265,52 @@ async function main() {
         acknowledgedAt = candidate > now ? null : candidate;
       }
 
-      const responseDueAt = addHours(createdAt, 48);
+      // Escalation — the "time" trigger from policy (target date passed
+      // while still open), surfaced by bumping the owning tier one level.
+      let authorityLevel = meta.defaultTier;
+      let escalatedAt = null;
+      if (['open', 'investigating'].includes(status) && responseDueAt < now && chance(0.5)) {
+        authorityLevel = 'senior';
+        escalatedAt = addHours(responseDueAt, rint(1, 48));
+        if (escalatedAt > now) escalatedAt = now;
+      }
 
       let resolvedAt = null, outcome = 'pending', outcomeCommunicatedAt = null, resolution = null, changesMade = null;
+      let customerConfirmedAt = null;
+      let rootCause = null, rootCauseCategory = null, correctiveAction = null, correctiveActionOwner = null, correctiveActionDueAt = null;
+
+      // Root cause is mandatory for S1, and done anyway for a repeat case
+      // regardless of severity — matches the policy's RCA trigger table.
+      const needsRootCause = severity === 'S1' || isRepeat;
+
       if ((status === 'resolved' || status === 'closed') && acknowledgedAt) {
         const candidate = addHours(acknowledgedAt, rint(4, 96));
         resolvedAt = candidate > now ? now : candidate;
         outcome = weighted(OUTCOME);
         resolution = pick(RESOLUTIONS[outcome]);
         changesMade = pick(CHANGES_MADE);
+
+        if (needsRootCause || chance(0.3)) {
+          rootCauseCategory = pick(Object.keys(ROOT_CAUSES));
+          rootCause = pick(ROOT_CAUSES[rootCauseCategory]);
+          correctiveAction = pick(CORRECTIVE_ACTIONS);
+          correctiveActionOwner = pick(staffPool);
+          const dueCandidate = addHours(resolvedAt, rint(24, 30 * 24));
+          correctiveActionDueAt = `${dueCandidate.getFullYear()}-${pad(dueCandidate.getMonth() + 1)}-${pad(dueCandidate.getDate())}`;
+        }
+
         if (chance(0.85)) {
           const commCandidate = addHours(resolvedAt, rint(0, 24));
           outcomeCommunicatedAt = commCandidate > now ? now : commCandidate;
+        }
+
+        // Customer confirmation is the real close gate. Every 'closed' row
+        // must have one; a 'resolved' row sometimes does (ready to close,
+        // just not actioned yet) and sometimes doesn't (waiting on the
+        // customer) — both are realistic in-flight states.
+        if (status === 'closed' || (outcomeCommunicatedAt && chance(0.6))) {
+          const confirmCandidate = addHours(outcomeCommunicatedAt || resolvedAt, rint(1, 48));
+          customerConfirmedAt = confirmCandidate > now ? now : confirmCandidate;
         }
       }
 
@@ -235,12 +322,18 @@ async function main() {
            (workshop_id, work_order_id, customer_id, amount, reason, status,
             case_number, owner_user_id, intake_channel, acknowledged_at, response_due_at,
             outcome, outcome_communicated_at, authority_level, resolution, changes_made,
+            severity, is_repeat, root_cause, root_cause_category,
+            corrective_action, corrective_action_owner, corrective_action_due_at,
+            customer_confirmed_at, escalated_at,
             resolved_by, resolved_at, created_by, created_at)
-         VALUES (?,?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?, ?,?,?,?)`,
+         VALUES (?,?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?, ?,?,?,?, ?,?,?, ?,?, ?,?,?,?)`,
         [
           workshopId, workOrderId, customer.id, amount, reasonEntry.text, status,
           caseNumber, pick(staffPool), weighted(INTAKE), acknowledgedAt ? mysqlDt(acknowledgedAt) : null, mysqlDt(responseDueAt),
-          outcome, outcomeCommunicatedAt ? mysqlDt(outcomeCommunicatedAt) : null, weighted(AUTHORITY), resolution, changesMade,
+          outcome, outcomeCommunicatedAt ? mysqlDt(outcomeCommunicatedAt) : null, authorityLevel, resolution, changesMade,
+          severity, isRepeat ? 1 : 0, rootCause, rootCauseCategory,
+          correctiveAction, correctiveActionOwner, correctiveActionDueAt,
+          customerConfirmedAt ? mysqlDt(customerConfirmedAt) : null, escalatedAt ? mysqlDt(escalatedAt) : null,
           resolvedAt ? pick(staffPool) : null, resolvedAt ? mysqlDt(resolvedAt) : null, pick(staffPool), mysqlDt(createdAt),
         ]
       );

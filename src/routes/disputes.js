@@ -8,20 +8,38 @@
  * ("decision given in writing"), authority_level, changes_made. None of it was
  * ever wired to a route or a page — this file is that wiring.
  *
- * What's deliberately NOT here: a complaint category/type. The KPI matrix
- * rows that wanted a categorised breakdown are blocked on a taxonomy from GM
- * Pioneer that does not exist yet. Adding a `category` column later is a
- * one-line additive migration — nothing here needs to change shape for it.
+ * 20260911_complaint_severity_workflow.sql layered on the workshop's actual
+ * complaint-management policy on top of that shape:
+ *   - severity (S1 safety/repeat, S2 workmanship/billing, S3 conduct/info),
+ *     each with its own working-day SLA (see SEVERITY_META) and default
+ *     owning tier (authority_level doubles as the escalation tier: advisor
+ *     = Tier 1 Service Advisor, manager = Tier 2 Branch Manager, senior =
+ *     Tier 3 General Manager)
+ *   - a second complaint on the same customer within 90 days is auto-flagged
+ *     is_repeat and forced to S1, per policy
+ *   - root_cause (+ category) and a corrective_action with an owner/due date,
+ *     mandatory before closing an S1
+ *   - customer_confirmed_at is the actual close gate: "a case is closed only
+ *     when the customer confirms the outcome — not when the work is
+ *     finished" — POST /:id/close now requires it (and root_cause for S1)
  *
- *   GET   /api/disputes            list, filterable
- *   GET   /api/disputes/stats      KPI cards (volume, SLA, resolution time, outcome mix)
+ * What's deliberately NOT here: an automated escalation notifier. The "time"
+ * escalation trigger (target date passes → rises a tier) is surfaced as a
+ * computed field for the reporting/list views to act on, not as a cron job
+ * that pages anyone — no notification channel for that exists yet.
+ *
+ *   GET   /api/disputes            list, filterable (supports from/to date range)
+ *   GET   /api/disputes/stats      KPI cards (volume, SLA, resolution time, outcome mix, by severity)
  *   GET   /api/disputes/:id        detail
  *   POST  /api/disputes            create (opens as 'open')
  *   PATCH /api/disputes/:id        partial update (only keys present are touched)
  *   POST  /api/disputes/:id/acknowledge  stamp acknowledged_at
  *   POST  /api/disputes/:id/resolve      internal decision: status, outcome, resolution
  *   POST  /api/disputes/:id/communicate  stamp outcome_communicated_at (told the customer)
- *   POST  /api/disputes/:id/close        final closure after resolution
+ *   POST  /api/disputes/:id/confirm      customer confirmed the outcome (the real close gate)
+ *   POST  /api/disputes/:id/escalate     bump the owning tier (advisor → manager → senior)
+ *   POST  /api/disputes/:id/close        final closure — requires customer confirmation
+ *                                        (and root cause, if S1)
  */
 
 import { Router } from 'express';
@@ -36,6 +54,16 @@ const STATUSES = ['open', 'investigating', 'resolved', 'closed'];
 const INTAKE_CHANNELS = ['in_person', 'phone', 'email', 'whatsapp', 'portal', 'letter'];
 const OUTCOMES = ['pending', 'refund_due', 'charge_correct', 'partial_refund', 'goodwill'];
 const AUTHORITY_LEVELS = ['advisor', 'manager', 'senior'];
+const SEVERITIES = ['S1', 'S2', 'S3'];
+const ROOT_CAUSE_CATEGORIES = ['method', 'machine', 'material', 'manpower', 'measurement', 'environment'];
+
+// Working-day SLA by severity, and who owns it by default (Tier 1/2/3 from
+// the policy map onto the authority_level enum this schema already had).
+const SEVERITY_META = {
+  S1: { resolveDays: 2, defaultTier: 'manager' },   // Safety / repeat failure — 1-2 working days, Branch Manager
+  S2: { resolveDays: 5, defaultTier: 'manager' },   // Workmanship / billing — 3-5 working days, Branch Manager
+  S3: { resolveDays: 3, defaultTier: 'advisor' },   // Conduct / information — 2-3 working days, Service Advisor
+};
 
 function genCaseNumber() {
   const d = new Date();
@@ -50,6 +78,19 @@ const mysqlDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getD
 function parseWhen(v) {
   if (!v || Number.isNaN(Date.parse(v))) return null;
   return mysqlDate(new Date(v));
+}
+
+// Adds N working days to a date, skipping Fridays — an approximation (the
+// real workshop roster isn't a fixed weekly day off, see the KPI import
+// script's notes on this), close enough for a target-date estimate.
+function addWorkingDays(date, days) {
+  const d = new Date(date);
+  let remaining = days;
+  while (remaining > 0) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() !== 5) remaining--;
+  }
+  return d;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -88,13 +129,15 @@ router.get('/', async (req, res) => {
 
     const rows = await query(
       `SELECT d.id, d.case_number, d.status, d.intake_channel, d.reason, d.amount,
+              d.severity, d.is_repeat, d.root_cause, d.root_cause_category,
               d.acknowledged_at, d.response_due_at, d.outcome, d.outcome_communicated_at,
-              d.authority_level, d.resolution, d.resolved_at, d.created_at,
+              d.authority_level, d.resolution, d.resolved_at, d.customer_confirmed_at,
+              d.escalated_at, d.created_at,
               c.full_name AS customer_name, c.phone AS customer_phone,
               wo.work_order_number,
               ou.full_name AS owner_name,
-              (d.acknowledged_at IS NULL AND TIMESTAMPDIFF(HOUR, d.created_at, NOW()) > 24
-                AND d.status IN ('open','investigating')) AS is_ack_overdue
+              (d.response_due_at IS NOT NULL AND d.response_due_at < NOW()
+                AND d.status IN ('open','investigating')) AS is_escalation_due
          FROM disputes d
          LEFT JOIN customers c ON c.id = d.customer_id
          LEFT JOIN work_orders wo ON wo.id = d.work_order_id
@@ -158,6 +201,17 @@ router.get('/stats', async (req, res) => {
          FROM disputes WHERE ${clause} GROUP BY outcome ORDER BY count DESC`,
       params
     );
+    const bySeverity = await query(
+      `SELECT severity,
+              COUNT(*) AS count,
+              AVG(CASE WHEN resolved_at IS NOT NULL
+                       THEN TIMESTAMPDIFF(HOUR, created_at, resolved_at) END) AS avg_resolution_hours,
+              COALESCE(SUM(resolved_at IS NOT NULL AND response_due_at IS NOT NULL
+                           AND resolved_at <= response_due_at), 0) AS sla_met,
+              COALESCE(SUM(resolved_at IS NOT NULL), 0) AS resolved_count
+         FROM disputes WHERE ${clause} GROUP BY severity ORDER BY severity`,
+      params
+    );
 
     const pct = (num, den) => (den ? Math.round((Number(num) / Number(den)) * 100) : null);
     const total = Number(h.total);
@@ -181,6 +235,12 @@ router.get('/stats', async (req, res) => {
         },
         by_channel: byChannel,
         by_outcome: byOutcome,
+        by_severity: bySeverity.map(r => ({
+          severity: r.severity,
+          count: Number(r.count),
+          avgResolutionDays: r.avg_resolution_hours != null ? Math.round((r.avg_resolution_hours / 24) * 10) / 10 : null,
+          slaCompliancePct: pct(r.sla_met, r.resolved_count),
+        })),
       },
     });
   } catch (err) {
@@ -231,25 +291,47 @@ router.post('/', async (req, res) => {
       });
     }
 
+    const customerId = b.customer_id ? Number(b.customer_id) : null;
+
+    // Repeat trigger: a second complaint on this customer within 90 days is
+    // raised to S1 and reviewed at Tier 3, per policy — regardless of what
+    // severity was picked on the form.
+    let severity = SEVERITIES.includes(b.severity) ? b.severity : 'S2';
+    let isRepeat = false;
+    if (customerId) {
+      const [{ c: priorCount } = { c: 0 }] = await query(
+        `SELECT COUNT(*) AS c FROM disputes
+          WHERE workshop_id = ? AND customer_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)`,
+        [req.workshopId, customerId]
+      );
+      if (Number(priorCount) > 0) { isRepeat = true; severity = 'S1'; }
+    }
+
+    const meta = SEVERITY_META[severity];
+    const responseDueAt = b.response_due_at ? parseWhen(b.response_due_at) : mysqlDate(addWorkingDays(new Date(), meta.resolveDays));
+    const authorityLevel = AUTHORITY_LEVELS.includes(b.authority_level) ? b.authority_level : meta.defaultTier;
+
     const caseNumber = genCaseNumber();
     const result = await execute(
       `INSERT INTO disputes
          (workshop_id, work_order_id, invoice_id, customer_id, amount, reason, status,
           case_number, owner_user_id, intake_channel, response_due_at, authority_level,
-          created_by, created_at)
-       VALUES (?,?,?,?,?,?, 'open', ?,?,?,?,?, ?, NOW())`,
+          severity, is_repeat, created_by, created_at)
+       VALUES (?,?,?,?,?,?, 'open', ?,?,?,?,?, ?,?, ?, NOW())`,
       [
         req.workshopId,
         b.work_order_id ? Number(b.work_order_id) : null,
         b.invoice_id ? Number(b.invoice_id) : null,
-        b.customer_id ? Number(b.customer_id) : null,
+        customerId,
         b.amount != null && b.amount !== '' ? Number(b.amount) : 0,
         clampText(b.reason, 5000),
         caseNumber,
         b.owner_user_id ? Number(b.owner_user_id) : (req.user?.id || null),
         INTAKE_CHANNELS.includes(b.intake_channel) ? b.intake_channel : 'in_person',
-        parseWhen(b.response_due_at),
-        AUTHORITY_LEVELS.includes(b.authority_level) ? b.authority_level : 'advisor',
+        responseDueAt,
+        authorityLevel,
+        severity,
+        isRepeat ? 1 : 0,
         req.user?.id || null,
       ]
     );
@@ -289,6 +371,15 @@ router.patch('/:id', async (req, res) => {
     if (has('changes_made')) { sets.push('changes_made = ?'); params.push(clampText(b.changes_made, 5000)); }
     if (has('resolution')) { sets.push('resolution = ?'); params.push(clampText(b.resolution, 5000)); }
     if (has('outcome') && OUTCOMES.includes(b.outcome)) { sets.push('outcome = ?'); params.push(b.outcome); }
+    if (has('severity') && SEVERITIES.includes(b.severity)) { sets.push('severity = ?'); params.push(b.severity); }
+    if (has('root_cause')) { sets.push('root_cause = ?'); params.push(clampText(b.root_cause, 5000)); }
+    if (has('root_cause_category') && (b.root_cause_category === null || ROOT_CAUSE_CATEGORIES.includes(b.root_cause_category))) {
+      sets.push('root_cause_category = ?'); params.push(b.root_cause_category || null);
+    }
+    if (has('corrective_action')) { sets.push('corrective_action = ?'); params.push(clampText(b.corrective_action, 5000)); }
+    if (has('corrective_action_owner')) { sets.push('corrective_action_owner = ?'); params.push(b.corrective_action_owner ? Number(b.corrective_action_owner) : null); }
+    if (has('corrective_action_due_at')) { sets.push('corrective_action_due_at = ?'); params.push(b.corrective_action_due_at || null); }
+    if (has('corrective_action_closed_at')) { sets.push('corrective_action_closed_at = ?'); params.push(parseWhen(b.corrective_action_closed_at)); }
 
     if (has('status') && STATUSES.includes(b.status)) {
       sets.push('status = ?'); params.push(b.status);
@@ -349,18 +440,37 @@ router.post('/:id/resolve', async (req, res) => {
     const b = req.body || {};
     const outcome = OUTCOMES.includes(b.outcome) ? b.outcome : 'pending';
 
+    const [existing] = await query('SELECT severity FROM disputes WHERE id = ? AND workshop_id = ?', [id, req.workshopId]);
+    if (!existing) return res.status(404).json({ success: false, message: 'Complaint not found' });
+    if (existing.severity === 'S1' && !String(b.root_cause || '').trim()) {
+      return res.status(422).json({
+        success: false, message: 'Root cause is required for an S1 complaint before it can be resolved',
+        errors: [{ field: 'root_cause', message: 'Required for S1' }],
+      });
+    }
+
     const result = await execute(
       `UPDATE disputes
           SET status = 'resolved', resolved_at = NOW(), resolved_by = ?,
               acknowledged_at = COALESCE(acknowledged_at, NOW()),
               outcome = ?,
               resolution = COALESCE(?, resolution),
-              changes_made = COALESCE(?, changes_made)
+              changes_made = COALESCE(?, changes_made),
+              root_cause = COALESCE(?, root_cause),
+              root_cause_category = COALESCE(?, root_cause_category),
+              corrective_action = COALESCE(?, corrective_action),
+              corrective_action_owner = COALESCE(?, corrective_action_owner),
+              corrective_action_due_at = COALESCE(?, corrective_action_due_at)
         WHERE id = ? AND workshop_id = ? AND status IN ('open','investigating')`,
       [
         req.user?.id || null, outcome,
         b.resolution ? clampText(b.resolution, 5000) : null,
         b.changes_made ? clampText(b.changes_made, 5000) : null,
+        b.root_cause ? clampText(b.root_cause, 5000) : null,
+        ROOT_CAUSE_CATEGORIES.includes(b.root_cause_category) ? b.root_cause_category : null,
+        b.corrective_action ? clampText(b.corrective_action, 5000) : null,
+        b.corrective_action_owner ? Number(b.corrective_action_owner) : null,
+        b.corrective_action_due_at || null,
         id, req.workshopId,
       ]
     );
@@ -402,11 +512,83 @@ router.post('/:id/communicate', async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════
-   POST /:id/close — final closure after resolution
-   ═══════════════════════════════════════════════════════════ */
+   POST /:id/confirm — the customer confirmed the outcome. The actual close
+   gate: "a case is closed only when the customer confirms the outcome — not
+   when the work is finished."
+   ════════════════════════════════════════════════════════ */
+router.post('/:id/confirm', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const result = await execute(
+      `UPDATE disputes SET customer_confirmed_at = COALESCE(customer_confirmed_at, NOW())
+        WHERE id = ? AND workshop_id = ? AND status = 'resolved'`,
+      [id, req.workshopId]
+    );
+    if (!result.affectedRows) {
+      return res.status(409).json({
+        success: false, message: 'Resolve the complaint before recording the customer\'s confirmation',
+      });
+    }
+    const [row] = await query('SELECT * FROM disputes WHERE id = ?', [id]);
+    return res.json({ success: true, data: row, message: 'Customer confirmation recorded.' });
+  } catch (err) {
+    console.error('[disputes] confirm error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to record the confirmation' });
+  }
+});
+
+/* ════════════════════════════════════════════════════════
+   POST /:id/escalate — manual bump to the next tier (the "request" trigger:
+   a customer asking for someone more senior, escalated without qualification).
+   The "time" trigger (target date passed) is surfaced via is_escalation_due
+   on the list instead of auto-escalating here — no notification channel
+   exists yet to page anyone, so nothing should silently change ownership.
+   ════════════════════════════════════════════════════════ */
+const NEXT_TIER = { advisor: 'manager', manager: 'senior', senior: 'senior' };
+router.post('/:id/escalate', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [existing] = await query(
+      'SELECT authority_level FROM disputes WHERE id = ? AND workshop_id = ?', [id, req.workshopId]
+    );
+    if (!existing) return res.status(404).json({ success: false, message: 'Complaint not found' });
+    const nextTier = NEXT_TIER[existing.authority_level] || 'senior';
+
+    await execute(
+      `UPDATE disputes SET authority_level = ?, escalated_at = NOW() WHERE id = ? AND workshop_id = ?`,
+      [nextTier, id, req.workshopId]
+    );
+    const [row] = await query('SELECT * FROM disputes WHERE id = ?', [id]);
+    return res.json({ success: true, data: row, message: `Escalated to ${nextTier}.` });
+  } catch (err) {
+    console.error('[disputes] escalate error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to escalate the complaint' });
+  }
+});
 router.post('/:id/close', async (req, res) => {
   try {
     const id = Number(req.params.id);
+    const [existing] = await query(
+      'SELECT status, severity, root_cause, customer_confirmed_at FROM disputes WHERE id = ? AND workshop_id = ?',
+      [id, req.workshopId]
+    );
+    if (!existing) return res.status(404).json({ success: false, message: 'Complaint not found' });
+    if (existing.status !== 'resolved') {
+      return res.status(409).json({ success: false, message: 'Only a resolved complaint can be closed' });
+    }
+    if (!existing.customer_confirmed_at) {
+      return res.status(422).json({
+        success: false,
+        message: 'The customer needs to confirm the outcome before this can be closed',
+      });
+    }
+    if (existing.severity === 'S1' && !String(existing.root_cause || '').trim()) {
+      return res.status(422).json({
+        success: false,
+        message: 'Root cause is required for an S1 complaint before it can be closed',
+      });
+    }
+
     const result = await execute(
       `UPDATE disputes SET status = 'closed'
         WHERE id = ? AND workshop_id = ? AND status = 'resolved'`,
