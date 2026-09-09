@@ -679,10 +679,16 @@ adminSurveyRouter.get('/stats', async (req, res) => {
     // Row 37 of the KPI matrix: CSAT/NPS are not credible evidence without the
     // response rate alongside them. Scoped to invites, on the same from/to
     // window as the responses above, so the two numbers describe one period.
+    // The branch filter has to reach the invites too, or a branch-scoped
+    // response count gets divided by a workshop-wide invite count and the
+    // response rate reads as some other branch's. survey_invites carries its
+    // own branch (post/05_customer_survey.sql), stamped when the invite is
+    // issued, so both sides of the ratio describe the same branch.
     const inviteWhere = ['workshop_id = ?'];
     const inviteParams = [req.user.workshop_id];
-    if (req.query.from) { inviteWhere.push('sent_at >= ?'); inviteParams.push(`${req.query.from} 00:00:00`); }
-    if (req.query.to)   { inviteWhere.push('sent_at <= ?'); inviteParams.push(`${req.query.to} 23:59:59`); }
+    if (req.query.from)   { inviteWhere.push('sent_at >= ?'); inviteParams.push(`${req.query.from} 00:00:00`); }
+    if (req.query.to)     { inviteWhere.push('sent_at <= ?'); inviteParams.push(`${req.query.to} 23:59:59`); }
+    if (req.query.branch) { inviteWhere.push('branch = ?');   inviteParams.push(req.query.branch); }
     const [inviteRow] = await query(
       `SELECT COUNT(*) AS invites_sent, SUM(responded_at IS NOT NULL) AS invites_responded
          FROM survey_invites WHERE ${inviteWhere.join(' AND ')}`,

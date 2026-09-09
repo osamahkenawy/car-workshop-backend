@@ -186,7 +186,13 @@ router.get('/stats', async (req, res) => {
                   THEN TIMESTAMPDIFF(HOUR, created_at, resolved_at) END) AS avg_resolution_hours,
          COALESCE(SUM(response_due_at IS NOT NULL), 0) AS due_count,
          COALESCE(SUM(response_due_at IS NOT NULL AND outcome_communicated_at IS NOT NULL
-                      AND outcome_communicated_at <= response_due_at), 0) AS response_on_time
+                      AND outcome_communicated_at <= response_due_at), 0) AS response_on_time,
+         -- Still open with the target date already gone. The list query
+         -- computes this per row as is_escalation_due; the SOP asks for the
+         -- count ("open any case shown as past target"), so it's reported
+         -- here too rather than made the page's job to tally.
+         COALESCE(SUM(response_due_at IS NOT NULL AND response_due_at < NOW()
+                      AND status IN ('open','investigating')), 0) AS past_target
        FROM disputes WHERE ${clause}`,
       params
     );
@@ -232,6 +238,7 @@ router.get('/stats', async (req, res) => {
           responseSlaPct: pct(h.response_on_time, h.due_count),
           responseSlaTracked: Number(h.due_count),
           resolutionRatePct: pct(Number(h.resolved_count) + Number(h.closed_count), total),
+          pastTarget: Number(h.past_target),
         },
         by_channel: byChannel,
         by_outcome: byOutcome,
