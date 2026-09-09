@@ -817,6 +817,60 @@ adminSurveyRouter.get('/', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/customer-survey/export
+ * Every response in range with all eleven answers, for the Excel export.
+ *
+ * Separate from GET / for two reasons. That route is paginated and feeds the
+ * on-screen table, so it deliberately returns only the derived averages —
+ * adding eleven more columns to every page load to serve an export nobody has
+ * asked for yet is the wrong trade. And the export needs the whole result set,
+ * not a page: fetching it through the list route would mean either a
+ * pagination loop or a per-row detail call, which for a month of responses is
+ * 164 round trips.
+ *
+ * MUST stay above GET /:id — Express matches in definition order, and '/:id'
+ * happily matches 'export' and then fails looking for response number NaN.
+ *
+ * Capped at 5000 rows. A workshop-month is a couple of hundred; the cap is
+ * there so a bad date range cannot try to serialise the whole table.
+ */
+adminSurveyRouter.get('/export', async (req, res) => {
+  try {
+    const { clause, params } = buildFilter(req);
+    const rows = await query(
+      `SELECT r.id, r.submitted_at, r.contact_name, r.contact_phone, r.contact_email,
+              r.branch, r.service_requested, r.language, r.source,
+              r.ces_find_channel, r.ces_easy_handle, r.resolution,
+              r.nps_score, r.nps_category, r.nps_reason,
+              r.csat_overall, r.csat_as_advertised, r.csat_expectations,
+              r.csat_rep_knowledge, r.csat_communication, r.csat_response_time,
+              r.ces_avg, r.csat_avg,
+              r.is_flagged, r.followed_up_at, r.follow_up_notes,
+              r.work_order_id, wo.work_order_number
+         FROM survey_responses r
+         LEFT JOIN work_orders wo ON r.work_order_id = wo.id
+        WHERE ${clause}
+        ORDER BY r.submitted_at ASC
+        LIMIT 5000`,
+      params
+    );
+
+    // The question wording travels with the data. Without it the export is
+    // eleven columns called csat_as_advertised and nobody outside the team
+    // can read the sheet.
+    return res.json({
+      success: true,
+      data: rows,
+      questions: QUESTION_LABELS,
+      truncated: rows.length === 5000,
+    });
+  } catch (err) {
+    console.error('[customer-survey GET /export]', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to export survey responses' });
+  }
+});
+
 /** GET /api/customer-survey/:id — one full response, every answer. */
 adminSurveyRouter.get('/:id', async (req, res) => {
   try {
