@@ -8,6 +8,14 @@
  *
  *   GET /api/mechanic-kpi/periods    distinct periods available, newest first
  *   GET /api/mechanic-kpi/snapshots  the report rows for one period
+ *   GET /api/mechanic-kpi/trend      per-period totals, oldest first
+ *
+ * Every response carries is_estimated, derived from the source label's
+ * `_estimated` suffix. Only Jul-2026 came from an actual attendance report;
+ * the rest are modeled figures supplied in a workbook that labels itself
+ * "SIMULATED / ESTIMATED ... not to be treated as accounting, payroll, HR or
+ * operational source-of-truth data". The UI has to be able to say which is
+ * which, so the flag travels with the data rather than living in the page.
  */
 import { Router } from 'express';
 import { query } from '../lib/database.js';
@@ -19,14 +27,18 @@ router.use(authMiddleware);
 router.get('/periods', async (req, res) => {
   try {
     const rows = await query(
-      `SELECT period_start, period_end, COUNT(*) AS technician_count
+      `SELECT period_start, period_end, source, COUNT(*) AS technician_count,
+              source LIKE '%\\_estimated' AS is_estimated
          FROM mechanic_kpi_snapshots
         WHERE workshop_id = ?
-        GROUP BY period_start, period_end
+        GROUP BY period_start, period_end, source
         ORDER BY period_start DESC`,
       [req.workshopId]
     );
-    return res.json({ success: true, data: rows });
+    return res.json({
+      success: true,
+      data: rows.map(r => ({ ...r, is_estimated: !!Number(r.is_estimated) })),
+    });
   } catch (err) {
     console.error('[mechanic-kpi] periods error:', err.message);
     return res.status(500).json({ success: false, message: 'Failed to load KPI periods' });
@@ -46,7 +58,7 @@ router.get('/snapshots', async (req, res) => {
       `SELECT s.id, s.mechanic_id, s.period_start, s.period_end, s.employee_code, s.designation,
               s.days_present, s.avail_hrs, s.ot_hrs, s.total_hrs, s.worked_hrs,
               s.prod_hrs_pct, s.idle_hrs_pct, s.billed_value, s.billed_hrs, s.billed_hours,
-              s.utilization_pct, s.productivity_pct, s.efficiency_pct,
+              s.utilization_pct, s.productivity_pct, s.efficiency_pct, s.source,
               m.full_name AS mechanic_name, m.specialty
          FROM mechanic_kpi_snapshots s
          JOIN mechanics m ON m.id = s.mechanic_id
@@ -55,18 +67,55 @@ router.get('/snapshots', async (req, res) => {
       params
     );
 
+    const sum = key => rows.reduce((a, r) => a + Number(r[key] || 0), 0);
+    const avg = key => Math.round(sum(key) / rows.length);
+
     const summary = rows.length ? {
       technician_count: rows.length,
-      total_billed_value: rows.reduce((a, r) => a + Number(r.billed_value || 0), 0),
-      avg_utilization_pct: Math.round(rows.reduce((a, r) => a + Number(r.utilization_pct || 0), 0) / rows.length),
-      avg_productivity_pct: Math.round(rows.reduce((a, r) => a + Number(r.productivity_pct || 0), 0) / rows.length),
-      avg_efficiency_pct: Math.round(rows.reduce((a, r) => a + Number(r.efficiency_pct || 0), 0) / rows.length),
+      total_billed_value: sum('billed_value'),
+      total_worked_hrs: Math.round(sum('worked_hrs')),
+      total_avail_hrs: Math.round(sum('avail_hrs')),
+      total_days_present: sum('days_present'),
+      avg_utilization_pct: avg('utilization_pct'),
+      avg_productivity_pct: avg('productivity_pct'),
+      avg_efficiency_pct: avg('efficiency_pct'),
+      is_estimated: /_estimated$/.test(rows[0].source || ''),
+      source: rows[0].source,
     } : null;
 
     return res.json({ success: true, data: rows, summary });
   } catch (err) {
     console.error('[mechanic-kpi] snapshots error:', err.message);
     return res.status(500).json({ success: false, message: 'Failed to load KPI snapshots' });
+  }
+});
+
+// Per-period roll-up for the trend strip, oldest first. Kept as its own
+// endpoint rather than derived client-side so the page doesn't have to pull
+// every technician row for all nine periods just to draw a line.
+router.get('/trend', async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT period_start, period_end, source,
+              source LIKE '%\\_estimated' AS is_estimated,
+              COUNT(*) AS technician_count,
+              ROUND(SUM(billed_value), 2) AS total_billed_value,
+              ROUND(AVG(utilization_pct)) AS avg_utilization_pct,
+              ROUND(AVG(productivity_pct)) AS avg_productivity_pct,
+              ROUND(AVG(efficiency_pct)) AS avg_efficiency_pct
+         FROM mechanic_kpi_snapshots
+        WHERE workshop_id = ?
+        GROUP BY period_start, period_end, source
+        ORDER BY period_start ASC`,
+      [req.workshopId]
+    );
+    return res.json({
+      success: true,
+      data: rows.map(r => ({ ...r, is_estimated: !!Number(r.is_estimated) })),
+    });
+  } catch (err) {
+    console.error('[mechanic-kpi] trend error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to load KPI trend' });
   }
 });
 
