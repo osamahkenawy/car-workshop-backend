@@ -304,7 +304,12 @@ async function main() {
       const needsRootCause = severity === 'S1' || isRepeat;
 
       if ((status === 'resolved' || status === 'closed') && acknowledgedAt) {
-        const candidate = addHours(acknowledgedAt, rint(4, 96));
+        // Centred on this complaint's own severity target rather than a flat
+        // range for everyone — S2 is the bulk of the mix and targets 5 working
+        // days, so tying the spread to each severity's own target is what
+        // lands the overall average around 5 days instead of a generic
+        // (and, across a mostly-S2 mix, noticeably shorter) flat range.
+        const candidate = addHours(acknowledgedAt, rint(24, meta.resolveDays * 24 * 2));
         resolvedAt = candidate > now ? now : candidate;
         outcome = weighted(OUTCOME);
         resolution = pick(RESOLUTIONS[outcome]);
