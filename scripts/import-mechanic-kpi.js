@@ -62,6 +62,21 @@ async function main() {
   const [{ id: workshopId } = {}] = await query('SELECT id FROM workshops LIMIT 1');
   if (!workshopId) throw new Error('No workshop found');
 
+  // Idempotent re-runs: a second import of the same period+source used to just
+  // append a second copy of every row (the table intentionally has no unique
+  // constraint on mechanic_id+period, since a few real mechanics genuinely
+  // have two source rows in one period — see the migration's comment). So a
+  // plain re-run silently doubled the report instead of refreshing it.
+  // Replacing by (period, source) keeps that legitimate case working while
+  // making "ran the same file twice" a no-op instead of a duplicate.
+  if (!dryRun) {
+    const del = await execute(
+      `DELETE FROM mechanic_kpi_snapshots WHERE workshop_id = ? AND period_start = ? AND period_end = ? AND source = ?`,
+      [workshopId, periodStartArg, periodEndArg, source]
+    );
+    if (del.affectedRows) console.log(`Replacing ${del.affectedRows} existing row(s) for this period+source before re-importing.\n`);
+  }
+
   let matchedByCode = 0, matchedByName = 0, unmatched = 0, inserted = 0;
   const unmatchedRows = [];
 
