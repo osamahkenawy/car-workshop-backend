@@ -49,6 +49,7 @@ import { checkLimit as checkLimitFn, getUsageStats } from '../middleware/plan-ga
 import crypto from 'crypto';
 import { serviceStatusToken } from '../lib/tokens.js';
 import { stripMarkupFields, clampTextFields } from '../lib/sanitize.js';
+import { issueSurveyOnClosure } from '../lib/survey-trigger.js';
 
 // SR-01/SR-16 — sanitise at the write boundary. Identity fields can never
 // legitimately contain markup, so it is stripped; free text is stored verbatim
@@ -1007,6 +1008,13 @@ router.patch('/:id/status', async (req, res) => {
       } catch (feedbackErr) {
         console.error('Failed to schedule follow-up call:', feedbackErr.message);
       }
+    }
+
+    // Auto-issue the satisfaction survey. No-op unless the branch has the
+    // trigger switched on in Settings > Surveys; never throws.
+    if (status === 'completed') {
+      issueSurveyOnClosure({ workOrderId: workOrder.id, workshopId: req.workshopId })
+        .catch(e => console.error('[SurveyTrigger] Error:', e.message));
     }
 
     // Release mechanic back to available when work order reaches a terminal status

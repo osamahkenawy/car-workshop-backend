@@ -4,6 +4,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { sendSMS, interpolate } from '../lib/sms.js';
 import { notifyWorkOrderStatus, notifyCashCollected } from '../lib/notify.js';
 import { publicTrackingLimiter } from '../lib/rate-limits.js';
+import { issueSurveyOnClosure } from '../lib/survey-trigger.js';
 
 const router = express.Router();
 
@@ -381,6 +382,13 @@ router.post('/:token/scan', authMiddleware, async (req, res) => {
         'INSERT INTO work_order_status_logs (work_order_id, status, changed_by, note) VALUES (?, ?, ?, ?)',
         [order.id, newOrderStatus, req.user?.id || null, `Auto-updated via ${scan_type}`]
       );
+
+      // Same survey trigger as the main status route — a job closed by
+      // scanning has to behave like one closed from the UI.
+      if (newOrderStatus === 'completed') {
+        issueSurveyOnClosure({ workOrderId: order.id, workshopId: req.workshopId })
+          .catch(e => console.error('[SurveyTrigger] Error:', e.message));
+      }
     }
 
     return res.json({
@@ -477,6 +485,11 @@ router.patch('/:token/status', authMiddleware, async (req, res) => {
     // If completed, increment mechanic total jobs completed
     if (status === 'completed' && order.mechanic_id) {
       await execute('UPDATE mechanics SET total_jobs_completed = total_jobs_completed + 1 WHERE id = ?', [order.mechanic_id]);
+    }
+
+    if (status === 'completed') {
+      issueSurveyOnClosure({ workOrderId: order.id, workshopId: req.workshopId })
+        .catch(e => console.error('[SurveyTrigger] Error:', e.message));
     }
 
     // Release mechanic back to available when work order reaches terminal status
