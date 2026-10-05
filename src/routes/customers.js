@@ -8,7 +8,7 @@ import { stripMarkupFields, clampTextFields } from '../lib/sanitize.js';
 // because HTML-stripping a note destroys legitimate content such as
 // "worn < 2mm". Only keys actually present in the body are touched, so the
 // update routes' "default to the existing row" destructuring still works.
-const CUSTOMERS_IDENTITY = ['full_name', 'company_name', 'email', 'phone', 'phone_alt', 'address_line1', 'address_line2', 'area', 'city', 'emirate', 'trn', 'contact_person'];
+const CUSTOMERS_IDENTITY = ['full_name', 'company_name', 'email', 'phone', 'phone_alt', 'address_line1', 'address_line2', 'area', 'city', 'emirate', 'trn', 'contact_person', 'code'];
 const CUSTOMERS_FREE_TEXT = ['notes'];
 function _clean(body) {
   return clampTextFields(stripMarkupFields(body || {}, CUSTOMERS_IDENTITY), CUSTOMERS_FREE_TEXT);
@@ -29,7 +29,10 @@ router.use(authMiddleware);
 // GET /api/customers
 router.get('/', async (req, res) => {
   try {
-    const { search, type, emirate, page = 1, limit = 50, sort } = req.query;
+    const {
+      search, type, emirate, page = 1, limit = 50, sort,
+      customer_class, customer_subcategory, active_only,
+    } = req.query;
     const pg = parseInt(page, 10) || 1;
     const lim = parseInt(limit, 10) || 50;
     const offset = (pg - 1) * lim;
@@ -38,9 +41,51 @@ router.get('/', async (req, res) => {
 
     if (type) { where += ' AND c.client_category = ?'; params.push(type); }
     if (emirate) { where += ' AND c.emirate = ?'; params.push(emirate); }
+
+    // Step 1 of the job card wizard filters on these two before showing a
+    // single name. Validated against the enum rather than passed through:
+    // an unrecognised value would otherwise return the whole unfiltered
+    // book of 3,472 customers, which looks like the filter silently not
+    // working rather than like an error.
+    if (customer_class) {
+      if (!['internal', 'external'].includes(customer_class)) {
+        return res.status(400).json({ success: false, message: 'customer_class must be internal or external' });
+      }
+      where += ' AND c.customer_class = ?';
+      params.push(customer_class);
+    }
+    if (customer_subcategory) {
+      if (!['fleet', 'insurance', 'asset', 'walkin'].includes(customer_subcategory)) {
+        return res.status(400).json({ success: false, message: 'customer_subcategory must be fleet, insurance, asset or walkin' });
+      }
+      where += ' AND c.customer_subcategory = ?';
+      params.push(customer_subcategory);
+    }
+    // The wizard must not offer a deactivated account to raise a job card
+    // against; the Customers screen still wants to list them.
+    if (active_only === '1' || active_only === 'true') {
+      where += ' AND c.is_active = 1';
+    }
     if (search) {
-      where += ' AND (c.full_name LIKE ? OR c.phone LIKE ? OR c.company_name LIKE ? OR c.email LIKE ?)';
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+      // Also matches by the plate/VIN of a vehicle the customer owns — the
+      // front desk often has the car in front of them (or a VIN off a job
+      // sheet) before they have a name to search by. An EXISTS subquery,
+      // not a JOIN: this table is already GROUP BY c.id with an aggregate
+      // work_orders join below, and a second join here would multiply each
+      // customer's rows by their vehicle count before that GROUP BY ran,
+      // silently inflating total_work_orders/lifetime_value for anyone with
+      // more than one car.
+      // `code` is in here because the wizard's search box is labelled
+      // "name, code or phone" — the fleet desk quotes AST-001 down the
+      // phone far more often than it spells out the registered company
+      // name, which on these accounts runs to sixty characters.
+      where += ` AND (c.full_name LIKE ? OR c.phone LIKE ? OR c.company_name LIKE ? OR c.email LIKE ?
+                 OR c.code LIKE ?
+                 OR EXISTS (SELECT 1 FROM vehicles v
+                             WHERE v.customer_id = c.id
+                               AND (v.plate_number LIKE ? OR v.vin LIKE ?)))`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`,
+                  `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     // Sort is interpolated into the SQL, so it is resolved through this map and
@@ -209,9 +254,29 @@ router.post('/', async (req, res) => {
     const {
       full_name, company_name, email, phone, phone_alt, type = 'individual',
       client_category = 'other', address_line1, address_line2, area, city,
-      emirate: rawEmirate, latitude, longitude, credit_limit, notes
+      emirate: rawEmirate, latitude, longitude, credit_limit, notes,
+      customer_class, customer_subcategory, code,
     } = _clean(req.body);
     const emirate = rawEmirate ? String(rawEmirate).slice(0, 100) : null;
+
+    // ── Step 1 classification ──
+    // Defaults to external/walkin, because the only caller that omits these
+    // is the job card wizard creating a customer on the spot — which is, by
+    // definition, a walk-in. An explicit value always wins.
+    const _class = ['internal', 'external'].includes(customer_class) ? customer_class : 'external';
+    let _sub = ['fleet', 'insurance', 'asset', 'walkin'].includes(customer_subcategory)
+      ? customer_subcategory
+      : (customer_class ? null : 'walkin');
+    // 'asset' is internal-only and 'walkin' external-only. Rejecting the
+    // combination rather than quietly rewriting it: a caller that sends
+    // external+asset has a bug, and silently storing something else makes
+    // that bug invisible until the fleet desk cannot find the account.
+    if (_class === 'external' && _sub === 'asset') {
+      return res.status(400).json({ success: false, message: 'Asset is an internal-only subcategory' });
+    }
+    if (_class === 'internal' && _sub === 'walkin') {
+      return res.status(400).json({ success: false, message: 'Walk-in is an external-only subcategory' });
+    }
     if (!full_name || !phone) {
       return res.status(400).json({ success: false, message: 'Name and phone required' });
     }
@@ -250,11 +315,13 @@ router.post('/', async (req, res) => {
     }
     const result = await execute(
       `INSERT INTO customers (workshop_id, full_name, company_name, email, phone, phone_alt, type,
-        client_category, address_line1, address_line2, area, city, emirate,
+        client_category, customer_class, customer_subcategory, code,
+        address_line1, address_line2, area, city, emirate,
         latitude, longitude, credit_limit, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [req.workshopId, full_name, company_name || null, email || null, phone, phone_alt || null,
-       type, client_category, address_line1 || null, address_line2 || null, area || null,
+       type, client_category, _class, _sub, code || null,
+       address_line1 || null, address_line2 || null, area || null,
        city || null, emirate, latitude || null, longitude || null,
        credit_limit || 0, notes || null]
     );
@@ -291,7 +358,27 @@ router.put('/:id', async (req, res) => {
       credit_limit = existing.credit_limit,
       notes = existing.notes,
       is_active = existing.is_active,
+      customer_class = existing.customer_class,
+      customer_subcategory = existing.customer_subcategory,
+      code = existing.code,
     } = _clean(req.body);
+
+    // Reclassifying an account is how the remaining internal fleet and
+    // insurance customers get set up — the migration could only promote the
+    // seven it could identify by name, and who else belongs internal is a
+    // business fact, not something to guess at from a company name.
+    const _class = ['internal', 'external'].includes(customer_class) ? customer_class : existing.customer_class;
+    const _sub = customer_subcategory === null || customer_subcategory === ''
+      ? null
+      : (['fleet', 'insurance', 'asset', 'walkin'].includes(customer_subcategory)
+          ? customer_subcategory
+          : existing.customer_subcategory);
+    if (_class === 'external' && _sub === 'asset') {
+      return res.status(400).json({ success: false, message: 'Asset is an internal-only subcategory' });
+    }
+    if (_class === 'internal' && _sub === 'walkin') {
+      return res.status(400).json({ success: false, message: 'Walk-in is an external-only subcategory' });
+    }
 
     // Validate phone format if changed
     if (req.body.phone) {
@@ -324,11 +411,14 @@ router.put('/:id', async (req, res) => {
 
     await execute(
       `UPDATE customers SET full_name=?, company_name=?, email=?, phone=?, phone_alt=?, type=?,
-       client_category=?, address_line1=?, address_line2=?, area=?, city=?, emirate=?,
+       client_category=?, customer_class=?, customer_subcategory=?, code=?,
+       address_line1=?, address_line2=?, area=?, city=?, emirate=?,
        latitude=?, longitude=?, credit_limit=?, notes=?, is_active=?
        WHERE id = ? AND workshop_id = ?`,
       [full_name, company_name || null, email || null, phone, phone_alt || null,
-       type || 'individual', client_category || 'other', address_line1 || null,
+       type || 'individual', client_category || 'other',
+       _class, _sub, code || null,
+       address_line1 || null,
        address_line2 || null, area || null, city || null,
        emirate ? String(emirate).slice(0, 100) : (existing.emirate || null),
        latitude || null, longitude || null, credit_limit || 0,

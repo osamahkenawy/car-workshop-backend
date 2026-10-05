@@ -695,6 +695,7 @@ router.post('/', async (req, res) => {
       payment_method = 'cash', cash_amount = 0, service_fee = 0,
       discount = 0, items = [], notes,
       pregenerated_token, // optional pre-printed service status token
+      odometer_in, intake_channel = 'advisor', fleet_intake_id,
     } = _clean(req.body);
 
     // If no customer_email provided but customer has one on file, use that
@@ -713,6 +714,66 @@ router.post('/', async (req, res) => {
     if (!resolvedName || !resolvedPhone) {
       return res.status(400).json({ success: false, message: 'Customer name and phone required' });
     }
+
+    // ── Mandatory intake data (process change, 15 Sep 2026) ──
+    // VIN, mileage and the vehicle complaint are required on every new job
+    // card. Enforced here rather than by a NOT NULL column because 96% of
+    // vehicles and 99% of work orders on file predate the rule — the
+    // constraint belongs on new intake, not retroactively on twenty
+    // thousand rows of history.
+    //
+    // `bypass_intake_required` exists for the importer and the API
+    // integration, which replay historical jobs that never had this data
+    // and cannot invent it. It is not exposed in the UI.
+    const skipIntakeChecks = req.body.bypass_intake_required === true;
+
+    if (!skipIntakeChecks) {
+      if (!description || !String(description).trim()) {
+        return res.status(400).json({ success: false, message: 'The vehicle complaint is required.' });
+      }
+
+      const odo = odometer_in === '' || odometer_in == null ? null : parseInt(odometer_in, 10);
+      if (odo == null || Number.isNaN(odo)) {
+        return res.status(400).json({ success: false, message: 'Mileage (odometer reading) is required.' });
+      }
+      if (odo < 0) {
+        return res.status(400).json({ success: false, message: 'Mileage cannot be negative.' });
+      }
+      // vehicles.mileage and work_orders.odometer_in are both INT — anything
+      // past this is a typo (a stray digit on 732,759 km), and letting it
+      // through corrupts every service-interval calculation off that vehicle.
+      if (odo > 9999999) {
+        return res.status(400).json({ success: false, message: 'Mileage looks wrong — check the reading.' });
+      }
+
+      // The VIN lives on the vehicle, not the work order, so it is checked
+      // against the vehicle being booked in. No vehicle at all is still
+      // allowed: a job card can legitimately be raised before the car
+      // arrives, and blocking that would break the appointment flow.
+      if (vehicle_id) {
+        const [veh] = await query(
+          'SELECT id, vin FROM vehicles WHERE id = ? AND workshop_id = ?',
+          [vehicle_id, req.workshopId]
+        );
+        if (!veh) {
+          return res.status(400).json({ success: false, message: 'Vehicle not found.' });
+        }
+        if (!veh.vin || !String(veh.vin).trim()) {
+          return res.status(400).json({
+            success: false,
+            code: 'VIN_REQUIRED',
+            message: 'This vehicle has no VIN / chassis number on file. Add it before raising the job card.',
+          });
+        }
+      }
+    }
+
+    const _odometer_in = odometer_in === '' || odometer_in == null
+      ? null
+      : (Number.isNaN(parseInt(odometer_in, 10)) ? null : parseInt(odometer_in, 10));
+
+    const VALID_INTAKE_CHANNELS = ['advisor', 'fleet_link', 'website', 'whatsapp', 'social', 'api'];
+    const _intake_channel = VALID_INTAKE_CHANNELS.includes(intake_channel) ? intake_channel : 'advisor';
 
     // Coerce empty-string ENUM fields to their defaults (CSV/bulk-import often sends "")
     const VALID_WORK_ORDER_TYPES = ['standard', 'express', 'same_day', 'scheduled', 'warranty'];
@@ -792,17 +853,31 @@ router.post('/', async (req, res) => {
         dropoff_address, dropoff_lat, dropoff_lng, description, special_instructions,
         scheduled_at, payment_method, cash_amount, service_fee, discount, total_amount,
         commission_rate, commission_amount, vat_rate, vat_amount, platform_fee, net_payable,
+        odometer_in, intake_channel, fleet_intake_id,
         status, service_status_token, pregenerated_token_id, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
       [req.workshopId, work_order_number, customer_id || null, vehicle_id || null, service_bay_id || null, _work_order_type, _service_category,
        resolvedName, resolvedPhone, resolvedEmail || null,
        dropoff_address || null, dropoff_lat || null, dropoff_lng || null,
        description || null, special_instructions || null, scheduled_at || null,
        _payment_method, _cash_amount, _service_fee, _discount, fin.totalAmount,
        fin.commissionRate, fin.commissionAmount, fin.vatRate, fin.vatAmount, fin.platformFee, fin.netPayable,
+       _odometer_in, _intake_channel, fleet_intake_id || null,
        service_status_token, pregeneratedTokenId, notes || null]
     );
     const workOrderId = result.insertId;
+
+    // Keep the vehicle's own odometer current. Guarded with a comparison so
+    // a job card keyed in late — or a typo that reads lower than the last
+    // known reading — cannot wind the vehicle's mileage backwards, which
+    // would make its next service interval fire early and its history
+    // non-monotonic.
+    if (vehicle_id && _odometer_in != null) {
+      await execute(
+        'UPDATE vehicles SET mileage = ? WHERE id = ? AND workshop_id = ? AND (mileage IS NULL OR mileage < ?)',
+        [_odometer_in, vehicle_id, req.workshopId, _odometer_in]
+      );
+    }
 
     // Mark pre-generated token as used
     if (pregeneratedTokenId) {
@@ -858,6 +933,14 @@ router.post('/', async (req, res) => {
    cancelled (failure_reason still records why).
    ─────────────────────────────────────────────────────────────────── */
 const VALID_TRANSITIONS = {
+  // Additive only — part of the work_orders.status rename (2026-09-14
+  // meeting notes): 'estimate_approved' is the new first state for a job
+  // card born from an approved estimate (routes/estimates.js
+  // convertEstimateToWorkOrder), preceding the existing 'confirmed' step.
+  // Every OTHER entry below is untouched: the full rename of pending/
+  // confirmed/assigned/accepted is a separate, deliberately-deferred
+  // migration — see 20260914_work_order_status_rename_widen.sql for why.
+  estimate_approved: ['confirmed', 'cancelled'],
   pending:          ['confirmed', 'cancelled'],
   confirmed:        ['assigned', 'in_progress', 'cancelled'],
   assigned:         ['accepted', 'in_progress', 'cancelled', 'confirmed'],

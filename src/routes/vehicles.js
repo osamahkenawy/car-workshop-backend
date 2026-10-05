@@ -8,7 +8,7 @@ import { stripMarkupFields, clampTextFields } from '../lib/sanitize.js';
 // because HTML-stripping a note destroys legitimate content such as
 // "worn < 2mm". Only keys actually present in the body are touched, so the
 // update routes' "default to the existing row" destructuring still works.
-const VEHICLES_IDENTITY = ['make', 'model', 'plate_number', 'vin', 'color', 'fuel_type', 'transmission'];
+const VEHICLES_IDENTITY = ['make', 'model', 'plate_number', 'plate_code', 'plate_emirate', 'vin', 'engine_no', 'fleet_code', 'color', 'fuel_type', 'transmission'];
 const VEHICLES_FREE_TEXT = ['notes'];
 function _clean(body) {
   return clampTextFields(stripMarkupFields(body || {}, VEHICLES_IDENTITY), VEHICLES_FREE_TEXT);
@@ -164,11 +164,50 @@ router.post('/', async (req, res) => {
   try {
     const {
       customer_id, make, model, year, plate_number, vin, color,
-      mileage, fuel_type = 'petrol', transmission = 'automatic', notes
+      mileage, fuel_type = 'petrol', transmission = 'automatic', notes,
+      plate_code, plate_emirate, engine_no, fleet_code,
     } = _clean(req.body);
 
     if (!customer_id || !make || !model) {
       return res.status(400).json({ success: false, message: 'Customer, make and model required' });
+    }
+
+    // ── VIN is mandatory on every new vehicle (process change, 15 Sep 2026) ──
+    // Only on create. The 5,694 vehicles already on file without one are
+    // left alone; they get their VIN the next time the car comes in, which
+    // is when the job card wizard asks for it.
+    //
+    // `allow_missing_vin` is for the bulk importer replaying a supplier
+    // file that genuinely has no chassis numbers — it is not sent by any
+    // screen.
+    if (req.body.allow_missing_vin !== true && (!vin || !String(vin).trim())) {
+      return res.status(400).json({
+        success: false,
+        code: 'VIN_REQUIRED',
+        message: 'VIN / chassis number is required.',
+      });
+    }
+
+    // A chassis number is unique to one car in the world, so the same VIN
+    // on two rows means one of them is wrong — usually the same car added
+    // twice under two customers, which then splits its service history in
+    // half. Blocked outright rather than warned about, because unlike a
+    // duplicate name there is no legitimate case for it.
+    if (vin && String(vin).trim()) {
+      const [dupVin] = await query(
+        `SELECT v.id, v.plate_number, c.full_name
+           FROM vehicles v JOIN customers c ON c.id = v.customer_id
+          WHERE v.workshop_id = ? AND v.vin = ? AND v.is_active = 1 LIMIT 1`,
+        [req.workshopId, String(vin).trim()]
+      );
+      if (dupVin) {
+        return res.status(409).json({
+          success: false,
+          code: 'VIN_DUPLICATE',
+          message: `This VIN is already on file for ${dupVin.plate_number || 'a vehicle'} (${dupVin.full_name}).`,
+          data: { vehicle_id: dupVin.id },
+        });
+      }
     }
 
     // Validate customer belongs to the same workshop before inserting
@@ -179,10 +218,13 @@ router.post('/', async (req, res) => {
     }
 
     const result = await execute(
-      `INSERT INTO vehicles (workshop_id, customer_id, make, model, year, plate_number, vin,
+      `INSERT INTO vehicles (workshop_id, customer_id, make, model, year, plate_number,
+        plate_code, plate_emirate, vin, engine_no, fleet_code,
         color, mileage, fuel_type, transmission, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [req.workshopId, customer_id, make, model, year || null, plate_number || null, vin || null,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.workshopId, customer_id, make, model, year || null, plate_number || null,
+       plate_code || null, plate_emirate || null, vin ? String(vin).trim() : null,
+       engine_no || null, fleet_code || null,
        color || null, mileage || null, fuel_type, transmission, notes || null]
     );
     const [vehicle] = await query('SELECT * FROM vehicles WHERE id = ?', [result.insertId]);
@@ -207,7 +249,11 @@ router.put('/:id', async (req, res) => {
       model = existing.model,
       year = existing.year,
       plate_number = existing.plate_number,
+      plate_code = existing.plate_code,
+      plate_emirate = existing.plate_emirate,
       vin = existing.vin,
+      engine_no = existing.engine_no,
+      fleet_code = existing.fleet_code,
       color = existing.color,
       mileage = existing.mileage,
       fuel_type = existing.fuel_type,
@@ -215,6 +261,28 @@ router.put('/:id', async (req, res) => {
       notes = existing.notes,
       is_active = existing.is_active,
     } = _clean(req.body);
+
+    // Filling in a missing VIN is the main reason this endpoint gets called
+    // from the job card wizard, so the same uniqueness rule as create
+    // applies — excluding this vehicle's own row, or saving a record
+    // without touching its VIN would report the vehicle as a duplicate of
+    // itself.
+    if (req.body.vin !== undefined && vin && String(vin).trim() && String(vin).trim() !== (existing.vin || '')) {
+      const [dupVin] = await query(
+        `SELECT v.id, v.plate_number, c.full_name
+           FROM vehicles v JOIN customers c ON c.id = v.customer_id
+          WHERE v.workshop_id = ? AND v.vin = ? AND v.id <> ? AND v.is_active = 1 LIMIT 1`,
+        [req.workshopId, String(vin).trim(), req.params.id]
+      );
+      if (dupVin) {
+        return res.status(409).json({
+          success: false,
+          code: 'VIN_DUPLICATE',
+          message: `This VIN is already on file for ${dupVin.plate_number || 'a vehicle'} (${dupVin.full_name}).`,
+          data: { vehicle_id: dupVin.id },
+        });
+      }
+    }
 
     // If customer_id is being changed, validate it belongs to this workshop
     if (req.body.customer_id) {
@@ -226,10 +294,13 @@ router.put('/:id', async (req, res) => {
     }
 
     await execute(
-      `UPDATE vehicles SET customer_id=?, make=?, model=?, year=?, plate_number=?, vin=?,
+      `UPDATE vehicles SET customer_id=?, make=?, model=?, year=?, plate_number=?,
+       plate_code=?, plate_emirate=?, vin=?, engine_no=?, fleet_code=?,
        color=?, mileage=?, fuel_type=?, transmission=?, notes=?, is_active=?
        WHERE id = ? AND workshop_id = ?`,
-      [customer_id, make, model, year || null, plate_number || null, vin || null,
+      [customer_id, make, model, year || null, plate_number || null,
+       plate_code || null, plate_emirate || null,
+       vin ? String(vin).trim() : null, engine_no || null, fleet_code || null,
        color || null, mileage || null, fuel_type, transmission, notes || null,
        is_active !== undefined ? is_active : true, req.params.id, req.workshopId]
     );
