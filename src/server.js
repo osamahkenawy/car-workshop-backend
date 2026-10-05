@@ -79,8 +79,10 @@ import superAdminEnhancedRouter from './routes/super-admin-enhanced.js';
 // ── SOW: New modules ──────────────────────────────────────────────────────
 import appointmentsRouter from './routes/appointments.js';
 import vehicleReceivingRouter from './routes/vehicle-receiving.js';
-import estimatesRouter from './routes/estimates.js';
+import estimatesRouter, { publicEstimateRouter } from './routes/estimates.js';
 import jobCardsRouter from './routes/job-cards.js';
+import teamLeaderRouter from './routes/team-leader.js';
+import fleetIntakeRouter, { publicFleetIntakeRouter } from './routes/fleet-intake.js';
 import inventoryRouter from './routes/inventory.js';
 import subletRouter, { proformaRouter, gatePassRouter } from './routes/sublet.js';
 import { vatRouter, evhcRouter, groupIntegrationRouter } from './routes/vat-evhc-integration.js';
@@ -264,8 +266,16 @@ app.use('/api/appointments', appointmentsRouter);
 app.use('/api/vehicle-receiving', vehicleReceivingRouter);
 // B3: Service estimates & operations master
 app.use('/api/estimates', estimatesRouter);
+// Customer-facing approve/reject link, emailed from POST /estimates/:id/send
+app.use('/api/public/estimates', publicEstimateRouter);
 // B5: Job cards, technician time capture, QC, loaner vehicles
 app.use('/api/job-cards', jobCardsRouter);
+// Team leader board: their technicians, the vehicles on the team, time bookings
+app.use('/api/team-leader', teamLeaderRouter);
+// Fleet coordinator intake: the vehicle information section on its own page
+app.use('/api/fleet-intake', fleetIntakeRouter);
+// The coordinator-facing form itself, opened from a tokenised link, no login
+app.use('/api/public/fleet-intake', publicFleetIntakeRouter);
 // B6: Inventory — requisitions, issues, returns, stock, reservations
 app.use('/api/inventory', inventoryRouter);
 // B8: Sublet management

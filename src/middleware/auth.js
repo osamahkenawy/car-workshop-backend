@@ -70,6 +70,11 @@ export async function authMiddleware(req, res, next) {
     if (user.role_id) {
       const [roleRow] = await query('SELECT slug, modules FROM roles WHERE id = ?', [user.role_id]);
       if (roleRow) {
+        // The slug was already being read here and then dropped. Routes need
+        // it: users.role is a fixed enum that predates the roles table, so a
+        // role added since (team_leader, quality_coordinator) can only ever
+        // be identified by this slug, never by user.role.
+        user.role_slug = roleRow.slug;
         user.role_modules = Array.isArray(roleRow.modules) ? roleRow.modules
           : typeof roleRow.modules === 'string' ? (() => { try { return JSON.parse(roleRow.modules); } catch { return []; } })()
           : [];
