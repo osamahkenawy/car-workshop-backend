@@ -3,7 +3,7 @@
 **Written 5 October 2026.** Everything needed to pick this up on another machine.
 
 > This is a copy. The canonical version, together with `docs/`, `deploy/`
-> and the roadmap, lives in the **pioneer-workshop** docs repo.
+> and the roadmap, lives in **github.com/osamahkenawy/pioneer-workshop-docs**.
 If you are an assistant reading this cold: read this file top to bottom before
 touching anything. Section 7 is the part people get wrong.
 
